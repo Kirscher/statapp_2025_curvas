@@ -1,0 +1,37 @@
+defaults:
+  - _self_
+  - table_config_lidc@datasets.LIDC
+  - table_config_gta@datasets.GTA
+  - tasks/plot_tasks@ds_tasks
+
+save_path: "/home/${oc.env:USER}/Refactoring/PaperResultPlots"
+
+df_naming:
+  LIDC Texture: "LIDC Tex"
+  LIDC Malignancy: "LIDC Mal"
+  GTA: "GTA5/CS"
+
+coloring:
+  unc_type:
+    aleatoric_uncertainty: "tab:cyan"
+    epistemic_uncertainty: "tab:pink"
+    predictive_uncertainty: "tab:olive"
+
+hatches:
+  unc_type:
+    aleatoric_uncertainty: "//"
+    epistemic_uncertainty: "xx"
+    predictive_uncertainty: "--"
+  pred_model:
+    Softmax: "//"
+    Dropout: "xx"
+    Ensemble: "--"
+    TTA: "\\\\"
+    SSN: "oo"
+  aggregation:
+    patch_level: "//"
+    threshold: "xx"
+    image_level: "--"
+
+ordering:
+  pred_model: ["Softmax", "Dropout", "Ensemble", "TTA", "SSN"]
