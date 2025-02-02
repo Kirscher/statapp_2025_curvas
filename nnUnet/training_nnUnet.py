@@ -1,3 +1,1 @@
 # Training nnUnet
-
-import numpy 
