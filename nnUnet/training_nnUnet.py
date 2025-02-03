@@ -9,5 +9,8 @@ print(x)
 x_gpu = torch.randn(3, 3).cuda()
 print(x_gpu)
 
-#nnU-Net needs environment variables
 import nnunetv2
+#nnU-Net needs environment variables, write the following inside the terminal
+# export nnUNet_raw="/home/onyxia/work/statapp_2025_curvas/nnUnet/dataset/nnUNet_raw"
+# export nnUNet_preprocessed="/home/onyxia/work/statapp_2025_curvas/nnUnet/dataset/nnUNet_preprocessed"
+# export nnUNet_results="/home/onyxia/work/statapp_2025_curvas/nnUnet/dataset/nnUNet_results"
