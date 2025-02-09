@@ -17,3 +17,4 @@ def fuse_annotations(annotations_paths, output_path):
 '''annotations_files = ["annotation_1.nii.gz", "annotation_1.nii.gz", "annotation_1.nii.gz"]
 output_fused = "fused_annotation.nii.gz"
 fuse_annotations(annotations_files, output_fused)'''
+
