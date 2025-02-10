@@ -8,7 +8,7 @@ import random
 
 import pytorch_lightning as pl
 from omegaconf import DictConfig, OmegaConf, open_dict
-from uncertainty_modeling.lightning_experiment import LightningExperiment
+#from uncertainty_modeling.lightning_experiment import LightningExperiment
 
 
 def pl_cli():
@@ -72,7 +72,7 @@ def main(cfg_hydra: DictConfig):
         gradient_clip_val=gradient_clip_val,
         gradient_clip_algorithm=gradient_clip_algorithm,
     )
-
+    print("yay")
     dm = hydra.utils.instantiate(
         config.datamodule,
         data_input_dir=config.data_input_dir,
