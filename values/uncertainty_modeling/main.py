@@ -76,10 +76,14 @@ def main(cfg_hydra: DictConfig):
     dm = hydra.utils.instantiate(
         config.datamodule,
         data_input_dir=config.data_input_dir,
-        seed=config.seed,
+        seed=config.seed, 
         _recursive_=False,
     )
     dm.prepare_data()
+    
+    #modif
+    trainer = pl.Trainer(gpus=1, max_epochs=50)
+
     model = LightningExperiment(config, **config)
     trainer.fit(model, datamodule=dm)
 
