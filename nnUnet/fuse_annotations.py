@@ -6,7 +6,7 @@ import tempfile
 import s3fs
 
 
-# Connexion à MinIO
+# Connexion à MinIO S3 Onyxia
 s3 = s3fs.S3FileSystem(
     client_kwargs={'endpoint_url': 'https://'+'minio.lab.sspcloud.fr'},
     key=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -19,11 +19,11 @@ target_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
 
 def merge_annotations(s3, source_folder="leoacpr/diffusion"):
     """
-    Fusionne les annotations de CT scans au format nii.gz
+    Fusionne les annotations de CT scans au format nii.gz en prenant la moyenne
     et les sauvegarde dans le format attendu par nnU-Net.
     
     Args:
-        s3: Instance s3fs.S3FileSystem configurée
+        s3: Instance s3fs.S3FileSystem 
         source_folder: Chemin du dossier source contenant les dossiers UKCH
     """
     # Liste tous les dossiers commençant par UKCH
@@ -31,10 +31,6 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
     
     # Dossier de destination pour nnU-Net
     dest_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
-    
-    # Crée le dossier de destination s'il n'existe pas
-    if not s3.exists(dest_folder):
-        s3.makedirs(dest_folder)
     
     for folder in all_folders:
         # Liste les fichiers d'annotation dans le dossier
@@ -54,7 +50,6 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
                 img = nib.load(temp_file)
                 annotations.append(img.get_fdata())
             
-            # Calcule la moyenne des annotations
             merged_data = np.mean(annotations, axis=0)
             
             # Crée le nouveau fichier nii.gz avec la même affine et header que le premier
@@ -72,4 +67,5 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
             
             print(f"Fusion terminée pour {folder_name}")
 
-merge_annotations(s3, source_folder="leoacpr/diffusion")
+#merge_annotations(s3, source_folder="leoacpr/diffusion")
+
