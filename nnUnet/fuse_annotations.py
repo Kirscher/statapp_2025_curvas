@@ -4,7 +4,7 @@ import nibabel as nib
 import numpy as np
 import os
 import s3fs
-import zipfile
+#import zipfile
 
 
 s3 = s3fs.S3FileSystem(
@@ -17,57 +17,61 @@ source_folder = f"leoacpr"
 print(s3.ls(source_folder))
 source_path = 's3://leoacpr/training_set.zip'
 
+print(s3.ls("leoacpr/diffusion"))
+
+import os
+import s3fs
+import nibabel as nib
+import numpy as np
+from io import BytesIO
+
+# Connexion à MinIO
+s3 = s3fs.S3FileSystem(
+    client_kwargs={'endpoint_url': 'https://'+'minio.lab.sspcloud.fr'},
+    key=os.getenv("AWS_ACCESS_KEY_ID"),
+    secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    token=os.getenv("AWS_SESSION_TOKEN")
+)
+
+source_folder = "leoacpr/diffusion"
+target_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
+
+# Lister les dossiers UKCH
+ukch_folders = [folder for folder in s3.ls(source_folder) if folder.startswith(f"{source_folder}/UKCH")]
+
+for folder in ukch_folders:
+    # Lister les fichiers NIfTI dans le dossier
+    nii_files = [file for file in s3.ls(folder) if file.endswith('.nii.gz') and 'annotation' in file]
+    
+    if len(nii_files) != 3:
+        print(f"Attention: {folder} contient {len(nii_files)} annotations au lieu de 3")
+        continue
+    
+    # Charger les annotations
+    annotations = []
+    for file in nii_files:
+        with s3.open(file, 'rb') as f:
+            nii = nib.load(BytesIO(f.read()))
+            annotations.append(nii.get_fdata())
+    
+    # Fusion par moyenne pixel
+    merged_annotation = np.mean(annotations, axis=0)
+    merged_nii = nib.Nifti1Image(merged_annotation, affine=nii.affine)
+    
+    # Enregistrer dans le dossier cible
+    merged_filename = f"{os.path.basename(folder)}_merged_annotation.nii.gz"
+    merged_path = f"{target_folder}/{merged_filename}"
+    
+    with BytesIO() as output:
+        nib.save(merged_nii, output)
+        output.seek(0)
+        s3.upload(output, merged_path)
+        print(f"Annotation fusionnée sauvegardée : {merged_path}")
+
+print("Fusion terminée.")
 
 
 
-
-
-
-# Définir les chemins source et destination
-bucket_name = 'leoacpr'
-zip_file_key = 'diffusion/training_set.zip'
-destination_folder = 'diffusion/'
-
-# Télécharger le fichier ZIP depuis S3
-zip_file_path = f's3://{bucket_name}/{zip_file_key}'
-zip_file = s3.open(zip_file_path, 'rb')
-
-# Fonction pour fusionner les annotations
-def merge_annotations(zip_file, output_dir):
-    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-        # Liste des sous-dossiers (cas patients)
-        cases = [name for name in zip_ref.namelist() if name.endswith('/') and 'UKCHLL' in name]
-
-        for case in cases:
-            annotation_files = [name for name in zip_ref.namelist() if name.startswith(case) and 'annotation' in name]
-
-            # Charger les annotations
-            annotations = []
-            for annotation_file in annotation_files:
-                with zip_ref.open(annotation_file) as file:
-                    annotation_img = nib.load(io.BytesIO(file.read()))
-                    annotations.append(annotation_img.get_fdata())
-
-            # Calculer la moyenne des annotations
-            merged_annotation = np.mean(annotations, axis=0)
-
-            # Sauvegarder l'annotation fusionnée dans le même dossier que les annotations d'origine
-            merged_annotation_img = nib.Nifti1Image(merged_annotation, annotation_img.affine)
-            merged_annotation_path = os.path.join(case, 'merged_annotation.nii.gz')
-
-            # Sauvegarder l'annotation fusionnée dans le fichier ZIP
-            with io.BytesIO() as merged_annotation_buffer:
-                nib.save(merged_annotation_img, merged_annotation_buffer)
-                merged_annotation_buffer.seek(0)
-                with s3.open(f's3://{bucket_name}/{merged_annotation_path}', 'wb') as s3_file:
-                    s3_file.write(merged_annotation_buffer.read())
-
-            print(f"Fusionnée {case}: s3://{bucket_name}/{merged_annotation_path}")
-
-# Appeler la fonction pour fusionner les annotations
-merge_annotations(zip_file, destination_folder)
-
-print("Fusion des annotations terminée.")
 
 
 
@@ -82,9 +86,10 @@ print("Fusion des annotations terminée.")
 
 
 # Exemple d'utilisation
-'''input_dir = '/path/to/training_set'  # Répertoire des données d'entrée
-output_dir = '/path/to/output'  # Répertoire de sortie pour les annotations fusionnées
+#input_dir = '/path/to/training_set'  # Répertoire des données d'entrée
+#output_dir = '/path/to/output'  # Répertoire de sortie pour les annotations fusionnées
 
-os.makedirs(output_dir, exist_ok=True)
-merge_annotations(input_dir, output_dir)'''
+#os.makedirs(output_dir, exist_ok=True)
+#merge_annotations(input_dir, output_dir)
 
+'''
