@@ -118,4 +118,4 @@ def copy_ct_images(s3, source_folder="leoacpr/diffusion"):
             
     print("Copie des images terminée")
 
-copy_ct_images(s3)
+#copy_ct_images(s3)
