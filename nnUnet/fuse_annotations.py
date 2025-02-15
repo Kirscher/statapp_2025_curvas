@@ -1,13 +1,14 @@
 import os
-import s3fs
 import nibabel as nib
 import numpy as np
-from io import BytesIO
-from nibabel.filebasedimages import FileHolder
+from pathlib import Path
+import tempfile
+import s3fs
+
 
 # Connexion à MinIO
 s3 = s3fs.S3FileSystem(
-    client_kwargs={'endpoint_url': 'https://' + 'minio.lab.sspcloud.fr'},
+    client_kwargs={'endpoint_url': 'https://'+'minio.lab.sspcloud.fr'},
     key=os.getenv("AWS_ACCESS_KEY_ID"),
     secret=os.getenv("AWS_SECRET_ACCESS_KEY"),
     token=os.getenv("AWS_SESSION_TOKEN")
@@ -16,57 +17,59 @@ s3 = s3fs.S3FileSystem(
 source_folder = "leoacpr/diffusion"
 target_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
 
-ukch_folders = [folder for folder in s3.ls(source_folder) if folder.startswith(f"{source_folder}/UKCH")]
+def merge_annotations(s3, source_folder="leoacpr/diffusion"):
+    """
+    Fusionne les annotations de CT scans au format nii.gz
+    et les sauvegarde dans le format attendu par nnU-Net.
+    
+    Args:
+        s3: Instance s3fs.S3FileSystem configurée
+        source_folder: Chemin du dossier source contenant les dossiers UKCH
+    """
+    # Liste tous les dossiers commençant par UKCH
+    all_folders = [f for f in s3.ls(source_folder) if 'UKCH' in f]
+    
+    # Dossier de destination pour nnU-Net
+    dest_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
+    
+    # Crée le dossier de destination s'il n'existe pas
+    if not s3.exists(dest_folder):
+        s3.makedirs(dest_folder)
+    
+    for folder in all_folders:
+        # Liste les fichiers d'annotation dans le dossier
+        files = [f for f in s3.ls(folder) if f.endswith('.nii.gz') and 'annotation' in f]
+        
+        if len(files) != 3:
+            print(f"Attention: {folder} ne contient pas exactement 3 annotations")
+            continue
+            
+        # Utilise un dossier temporaire pour les opérations sur les fichiers
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Charge les trois annotations
+            annotations = []
+            for file in files:
+                temp_file = os.path.join(temp_dir, os.path.basename(file))
+                s3.get(file, temp_file)
+                img = nib.load(temp_file)
+                annotations.append(img.get_fdata())
+            
+            # Calcule la moyenne des annotations
+            merged_data = np.mean(annotations, axis=0)
+            
+            # Crée le nouveau fichier nii.gz avec la même affine et header que le premier
+            merged_nii = nib.Nifti1Image(merged_data, img.affine, img.header)
+            
+            # Nom du fichier de sortie
+            folder_name = os.path.basename(folder)
+            output_filename = f"{folder_name}_merged_annotation.nii.gz"
+            temp_output = os.path.join(temp_dir, output_filename)
+            
+            # Sauvegarde localement puis upload vers S3
+            nib.save(merged_nii, temp_output)
+            dest_path = f"{dest_folder}/{output_filename}"
+            s3.put(temp_output, dest_path)
+            
+            print(f"Fusion terminée pour {folder_name}")
 
-for folder in ukch_folders:
-    nii_files = [file for file in s3.ls(folder) if file.endswith('.nii.gz') and 'annotation' in file]
-    if len(nii_files) != 3:
-        print(f"Attention: {folder} contient {len(nii_files)} annotations au lieu de 3")
-        continue
-
-    annotations = []
-    affine = None
-    for file in nii_files:
-        with s3.open(file, 'rb') as f:
-            try:
-                file_content = f.read()
-                file_like = BytesIO(file_content)
-                file_holder = FileHolder(fileobj=file_like)
-                nii = nib.Nifti1Image.from_file_map({'header': file_holder, 'image': file_holder})
-                if affine is None:
-                    affine = nii.affine
-                annotations.append(nii.get_fdata())
-            except nib.spatialimages.HeaderDataError:
-                print(f"Problème de header avec {file}, tentative de chargement forcé.")
-                try:
-                    # Forcer le chargement en ignorant les erreurs d'en-tête
-                    nii = nib.Nifti1Image.from_file_map({'header': file_holder, 'image': file_holder})
-                    if affine is None:
-                        affine = nii.affine
-                    annotations.append(nii.get_fdata())
-                except Exception as e:
-                    print(f"Erreur lors du chargement forcé de {file}: {e}")
-                    continue
-            except Exception as e:
-                print(f"Erreur lors du chargement de {file}: {e}")
-                continue
-
-    if not annotations:
-        print(f"Aucune annotation valide chargée pour {folder}.")
-        continue
-
-    merged_annotation = np.mean(annotations, axis=0).astype(np.float32)
-    merged_nii = nib.Nifti1Image(merged_annotation, affine=affine)
-    merged_nii.header.set_data_dtype(np.float32)
-
-    merged_filename = f"{os.path.basename(folder)}_merged_annotation.nii.gz"
-    merged_path = f"{target_folder}/{merged_filename}"
-
-    with BytesIO() as output:
-        nib.save(merged_nii, output)
-        output.seek(0)
-        with s3.open(merged_path, 'wb') as out_file:
-            out_file.write(output.read())
-        print(f"Annotation fusionnée sauvegardée : {merged_path}")
-
-print("Fusion terminée.")
+merge_annotations(s3, source_folder="leoacpr/diffusion")
