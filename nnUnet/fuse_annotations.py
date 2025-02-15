@@ -119,3 +119,36 @@ def copy_ct_images(s3, source_folder="leoacpr/diffusion"):
     print("Copie des images terminée")
 
 #copy_ct_images(s3)
+
+
+
+
+
+#i forgot to create a dataset folder which is required to train an nnUNet
+#i have had to copy the document and then delete them manually instead of moving them directly because it was forbidden
+def copy_nnunet_files(s3):
+    """
+    Copie les fichiers de fine_tuning pour nnU-Net (imagesTr et labelsTr) vers Dataset001_finetune.
+    
+    Args:
+        s3: Instance s3fs.S3FileSystem configurée
+    """
+    source_images = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/imagesTr"
+    source_labels = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
+    dest_images = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/imagesTr"
+    dest_labels = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr"
+
+
+    for file in s3.ls(source_images):
+        filename = os.path.basename(file)
+        s3.copy(file, f"{dest_images}/{filename}")
+        print(f"Copié: {filename} vers imagesTr")
+
+    for file in s3.ls(source_labels):
+        filename = os.path.basename(file)
+        s3.copy(file, f"{dest_labels}/{filename}")
+        print(f"Copié: {filename} vers labelsTr")
+
+    print("Copie terminée")
+
+#copy_nnunet_files(s3)
