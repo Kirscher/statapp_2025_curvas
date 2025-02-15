@@ -69,3 +69,53 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
 
 #merge_annotations(s3, source_folder="leoacpr/diffusion")
 
+
+#Copy paste the images for nnU-Net imagesTr
+def copy_ct_images(s3, source_folder="leoacpr/diffusion"):
+    """
+    Copie les images CT des dossiers UKCH vers le dossier imagesTr de nnU-Net
+    en les renommant selon le format requis.
+    
+    Args:
+        s3: Instance s3fs.S3FileSystem configurée
+        source_folder: Chemin du dossier source contenant les dossiers UKCH
+    """
+    # Dossier de destination pour nnU-Net
+    dest_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/imagesTr"
+    
+    '''# Crée le dossier de destination s'il n'existe pas
+    if not s3.exists(dest_folder):
+        s3.makedirs(dest_folder)'''
+        
+    # Liste tous les dossiers commençant par UKCH
+    ukch_folders = [f for f in s3.ls(source_folder) if 'UKCH' in f]
+    
+    for folder in ukch_folders:
+        # Trouve le fichier image dans le dossier
+        files = [f for f in s3.ls(folder) if 'image.nii.gz' in f]
+        
+        if not files:
+            print(f"Attention: Pas d'image trouvée dans {folder}")
+            continue
+            
+        if len(files) > 1:
+            print(f"Attention: Multiple images trouvées dans {folder}")
+            continue
+        
+        source_file = files[0]
+        folder_name = os.path.basename(folder)
+        
+        # Nouveau nom de fichier
+        new_filename = f"{folder_name}_image.nii.gz"
+        dest_path = f"{dest_folder}/{new_filename}"
+        
+        # Copie le fichier
+        try:
+            s3.copy(source_file, dest_path)
+            print(f"Image copiée pour {folder_name}")
+        except Exception as e:
+            print(f"Erreur lors de la copie de {folder_name}: {str(e)}")
+            
+    print("Copie des images terminée")
+
+copy_ct_images(s3)
