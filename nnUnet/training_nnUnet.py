@@ -8,7 +8,8 @@ import torch
 #pip3 install nnunetv2
 import s3fs
 import os
-
+from pathlib import Path
+from tqdm import tqdm
 
 # Connexion à MinIO S3 Onyxia
 s3 = s3fs.S3FileSystem(
@@ -21,15 +22,6 @@ s3 = s3fs.S3FileSystem(
 print(s3.ls("leoacpr/diffusion/nnunet_dataset/nnUNet_raw"))
 
 
-
-
-
-
-
-import s3fs
-import os
-from pathlib import Path
-from tqdm import tqdm
 
 def download_s3_folder():
     
