@@ -4,6 +4,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import s3fs
+import re
 
 
 # Connexion à MinIO S3 Onyxia
@@ -152,3 +153,108 @@ def copy_nnunet_files(s3):
     print("Copie terminée")
 
 #copy_nnunet_files(s3)
+
+
+
+
+
+#to respect the files naming conventions to train nnU-Net
+def rename_nnunet_files(s3):
+    """
+    Renomme directement les fichiers nnU-Net (imagesTr et labelsTr) dans leurs dossiers d'origine.
+
+    Args:
+        s3: Instance s3fs.S3FileSystem configurée
+    """
+    images_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/imagesTr"
+    labels_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr"
+
+    # Renommage des images
+    for file in s3.ls(images_path):
+        filename = os.path.basename(file)
+        match = re.match(r"(UKCHLL)(\d{3})_.*\\.nii\\.gz", filename)
+        print(match)
+        if match:
+            patient_id = f"{match.group(1)}_{match.group(2)}"
+
+            new_name = f"{patient_id}_0000.nii.gz"
+            print(new_name)
+            
+            '''if filename != new_name:
+                s3.copy(file, f"{images_path}/{new_name}")
+                s3.rm(file)
+                print(f"Image renommée : {filename} → {new_name}")
+            else:
+                print(f"Image déjà conforme : {filename}")
+        else:
+            print(f"Image non conforme (ignorée) : {filename}")'''
+
+    # Renommage des labels
+    for file in s3.ls(labels_path):
+        filename = os.path.basename(file)
+        match = re.match(r"(UKCHLL)(\d{3})_.*\\.nii\\.gz", filename)
+        if match:
+            patient_id = f"{match.group(1)}_{match.group(2)}"
+            new_name = f"{patient_id}.nii.gz"
+            print(new_name)
+            
+            '''if filename != new_name:
+                s3.copy(file, f"{labels_path}/{new_name}")
+                s3.rm(file)
+                print(f"Label renommé : {filename} → {new_name}")
+            else:
+                print(f"Label déjà conforme : {filename}")
+        else:
+            print(f"Label non conforme (ignoré) : {filename}")'''
+
+    print("Renommage terminé dans les dossiers d'origine.")
+
+
+import os
+import re
+
+def rename_nnunet_files(s3):
+    """
+    Renomme directement les fichiers nnU-Net (imagesTr et labelsTr) dans leurs dossiers d'origine.
+
+    Args:
+        s3: Instance s3fs.S3FileSystem configurée
+    """
+    images_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/imagesTr"
+    labels_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr"
+
+    # Renommage des images
+    for file in s3.ls(images_path):
+        filename = os.path.basename(file)
+        match = re.match(r"(UKCHLL)(\d{3})", filename)
+        if match:
+            patient_id = f"{match.group(1)}_{match.group(2)}"
+            new_name = f"{patient_id}_0000.nii.gz"
+            print(new_name)
+            if filename != new_name:
+                s3.copy(file, f"{images_path}/{new_name}")
+                print(f"Image renommée : {filename} → {new_name}")
+            else:
+                print(f"Image déjà conforme : {filename}")
+        else:
+            print(f"Image non conforme (ignorée) : {filename}")
+
+    # Renommage des labels
+    for file in s3.ls(labels_path):
+        filename = os.path.basename(file)
+        match = re.match(r"(UKCHLL)(\d{3})_.*", filename)
+        if match:
+            patient_id = f"{match.group(1)}_{match.group(2)}"
+            new_name = f"{patient_id}.nii.gz"
+            print(new_name)
+            if filename != new_name:
+                s3.copy(file, f"{labels_path}/{new_name}")
+                print(f"Label renommé : {filename} → {new_name}")
+            else:
+                print(f"Label déjà conforme : {filename}")
+        else:
+            print(f"Label non conforme (ignoré) : {filename}")
+
+    print("Renommage terminé dans les dossiers d'origine.")
+
+#rename_nnunet_files(s3)
