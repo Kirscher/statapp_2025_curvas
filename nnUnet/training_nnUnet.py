@@ -22,6 +22,8 @@ nnUNet_raw = "s3://leoacpr/diffusion/nnunet_dataset/nnUNet_raw"
 nnUNet_preprocessed = "s3://leoacpr/diffusion/nnunet_dataset/nnUNet_preprocessed"
 nnUNet_results = "s3://leoacpr/diffusion/nnunet_dataset/nnUNet_results"
 
+print(s3.ls("leoacpr/diffusion/nnunet_dataset/nnUNet_raw"))
+
 
 '''x = torch.tensor([1.0, 2.0, 3.0])
 print(x)
