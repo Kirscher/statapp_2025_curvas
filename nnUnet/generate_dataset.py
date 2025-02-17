@@ -18,6 +18,8 @@ s3 = s3fs.S3FileSystem(
 source_folder = "leoacpr/diffusion"
 target_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
 
+
+
 def merge_annotations(s3, source_folder="leoacpr/diffusion"):
     """
     Fusionne les annotations de CT scans au format nii.gz en prenant la moyenne
@@ -51,24 +53,42 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
                 img = nib.load(temp_file)
                 annotations.append(img.get_fdata())
             
-            merged_data = np.mean(annotations, axis=0)
+            merged_data = np.rint(np.mean(annotations, axis=0)).astype(np.int64)
             
             # Crée le nouveau fichier nii.gz avec la même affine et header que le premier
             merged_nii = nib.Nifti1Image(merged_data, img.affine, img.header)
             
             # Nom du fichier de sortie
             folder_name = os.path.basename(folder)
-            output_filename = f"{folder_name}_merged_annotation.nii.gz"
+            '''output_filename = f"{folder_name}_merged_annotation.nii.gz"
+            temp_output = os.path.join(temp_dir, output_filename)'''
+            
+            #respecte naming convention
+            patient_id = re.sub(r'(\D)(\d{3})', r'\1_\2', folder_name)
+            print(patient_id)
+            output_filename = f"{patient_id}.nii.gz"
+            print(output_filename)
             temp_output = os.path.join(temp_dir, output_filename)
             
             # Sauvegarde localement puis upload vers S3
             nib.save(merged_nii, temp_output)
             dest_path = f"{dest_folder}/{output_filename}"
             s3.put(temp_output, dest_path)
-            
+
             print(f"Fusion terminée pour {folder_name}")
 
-#merge_annotations(s3, source_folder="leoacpr/diffusion")
+
+merge_annotations(s3, source_folder="leoacpr/diffusion")
+
+
+
+
+
+
+
+
+
+
 
 
 #Copy paste the images for nnU-Net imagesTr
@@ -126,7 +146,8 @@ def copy_ct_images(s3, source_folder="leoacpr/diffusion"):
 
 
 #i forgot to create a dataset folder which is required to train an nnUNet
-#i have had to copy the document and then delete them manually instead of moving them directly because it was forbidden
+#i have had to copy the document and then delete them manually instead of moving them directly 
+# because it was forbidden
 def copy_nnunet_files(s3):
     """
     Copie les fichiers de fine_tuning pour nnU-Net (imagesTr et labelsTr) vers Dataset001_finetune.
@@ -158,61 +179,8 @@ def copy_nnunet_files(s3):
 
 
 
+
 #to respect the files naming conventions to train nnU-Net
-def rename_nnunet_files(s3):
-    """
-    Renomme directement les fichiers nnU-Net (imagesTr et labelsTr) dans leurs dossiers d'origine.
-
-    Args:
-        s3: Instance s3fs.S3FileSystem configurée
-    """
-    images_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/imagesTr"
-    labels_path = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr"
-
-    # Renommage des images
-    for file in s3.ls(images_path):
-        filename = os.path.basename(file)
-        match = re.match(r"(UKCHLL)(\d{3})_.*\\.nii\\.gz", filename)
-        print(match)
-        if match:
-            patient_id = f"{match.group(1)}_{match.group(2)}"
-
-            new_name = f"{patient_id}_0000.nii.gz"
-            print(new_name)
-            
-            '''if filename != new_name:
-                s3.copy(file, f"{images_path}/{new_name}")
-                s3.rm(file)
-                print(f"Image renommée : {filename} → {new_name}")
-            else:
-                print(f"Image déjà conforme : {filename}")
-        else:
-            print(f"Image non conforme (ignorée) : {filename}")'''
-
-    # Renommage des labels
-    for file in s3.ls(labels_path):
-        filename = os.path.basename(file)
-        match = re.match(r"(UKCHLL)(\d{3})_.*\\.nii\\.gz", filename)
-        if match:
-            patient_id = f"{match.group(1)}_{match.group(2)}"
-            new_name = f"{patient_id}.nii.gz"
-            print(new_name)
-            
-            '''if filename != new_name:
-                s3.copy(file, f"{labels_path}/{new_name}")
-                s3.rm(file)
-                print(f"Label renommé : {filename} → {new_name}")
-            else:
-                print(f"Label déjà conforme : {filename}")
-        else:
-            print(f"Label non conforme (ignoré) : {filename}")'''
-
-    print("Renommage terminé dans les dossiers d'origine.")
-
-
-import os
-import re
-
 def rename_nnunet_files(s3):
     """
     Renomme directement les fichiers nnU-Net (imagesTr et labelsTr) dans leurs dossiers d'origine.
