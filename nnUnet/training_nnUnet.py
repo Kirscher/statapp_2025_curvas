@@ -19,7 +19,7 @@ s3 = s3fs.S3FileSystem(
     token=os.getenv("AWS_SESSION_TOKEN")
 )
 
-print(s3.ls("leoacpr/diffusion/nnunet_dataset/nnUNet_raw"))
+print(len(s3.ls("leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr")))
 
 
 
