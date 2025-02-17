@@ -1,0 +1,132 @@
+[
+    {
+        "train": [
+            "CURVAS_UKCHLL001",
+            "CURVAS_UKCHLL002",
+            "CURVAS_UKCHLL009",
+            "CURVAS_UKCHLL015",
+            "CURVAS_UKCHLL017",
+            "CURVAS_UKCHLL021",
+            "CURVAS_UKCHLL023",
+            "CURVAS_UKCHLL034",
+            "CURVAS_UKCHLL035",
+            "CURVAS_UKCHLL037",
+            "CURVAS_UKCHLL038",
+            "CURVAS_UKCHLL041",
+            "CURVAS_UKCHLL042",
+            "CURVAS_UKCHLL045",
+            "CURVAS_UKCHLL046",
+            "CURVAS_UKCHLL048"
+        ],
+        "val": [
+            "CURVAS_UKCHLL011",
+            "CURVAS_UKCHLL031",
+            "CURVAS_UKCHLL039",
+            "CURVAS_UKCHLL043"
+        ]
+    },
+    {
+        "train": [
+            "CURVAS_UKCHLL002",
+            "CURVAS_UKCHLL009",
+            "CURVAS_UKCHLL011",
+            "CURVAS_UKCHLL015",
+            "CURVAS_UKCHLL017",
+            "CURVAS_UKCHLL021",
+            "CURVAS_UKCHLL023",
+            "CURVAS_UKCHLL031",
+            "CURVAS_UKCHLL034",
+            "CURVAS_UKCHLL037",
+            "CURVAS_UKCHLL039",
+            "CURVAS_UKCHLL041",
+            "CURVAS_UKCHLL043",
+            "CURVAS_UKCHLL045",
+            "CURVAS_UKCHLL046",
+            "CURVAS_UKCHLL048"
+        ],
+        "val": [
+            "CURVAS_UKCHLL001",
+            "CURVAS_UKCHLL035",
+            "CURVAS_UKCHLL038",
+            "CURVAS_UKCHLL042"
+        ]
+    },
+    {
+        "train": [
+            "CURVAS_UKCHLL001",
+            "CURVAS_UKCHLL002",
+            "CURVAS_UKCHLL009",
+            "CURVAS_UKCHLL011",
+            "CURVAS_UKCHLL015",
+            "CURVAS_UKCHLL017",
+            "CURVAS_UKCHLL031",
+            "CURVAS_UKCHLL034",
+            "CURVAS_UKCHLL035",
+            "CURVAS_UKCHLL038",
+            "CURVAS_UKCHLL039",
+            "CURVAS_UKCHLL041",
+            "CURVAS_UKCHLL042",
+            "CURVAS_UKCHLL043",
+            "CURVAS_UKCHLL046",
+            "CURVAS_UKCHLL048"
+        ],
+        "val": [
+            "CURVAS_UKCHLL021",
+            "CURVAS_UKCHLL023",
+            "CURVAS_UKCHLL037",
+            "CURVAS_UKCHLL045"
+        ]
+    },
+    {
+        "train": [
+            "CURVAS_UKCHLL001",
+            "CURVAS_UKCHLL002",
+            "CURVAS_UKCHLL009",
+            "CURVAS_UKCHLL011",
+            "CURVAS_UKCHLL015",
+            "CURVAS_UKCHLL017",
+            "CURVAS_UKCHLL021",
+            "CURVAS_UKCHLL023",
+            "CURVAS_UKCHLL031",
+            "CURVAS_UKCHLL035",
+            "CURVAS_UKCHLL037",
+            "CURVAS_UKCHLL038",
+            "CURVAS_UKCHLL039",
+            "CURVAS_UKCHLL042",
+            "CURVAS_UKCHLL043",
+            "CURVAS_UKCHLL045"
+        ],
+        "val": [
+            "CURVAS_UKCHLL034",
+            "CURVAS_UKCHLL041",
+            "CURVAS_UKCHLL046",
+            "CURVAS_UKCHLL048"
+        ]
+    },
+    {
+        "train": [
+            "CURVAS_UKCHLL001",
+            "CURVAS_UKCHLL011",
+            "CURVAS_UKCHLL021",
+            "CURVAS_UKCHLL023",
+            "CURVAS_UKCHLL031",
+            "CURVAS_UKCHLL034",
+            "CURVAS_UKCHLL035",
+            "CURVAS_UKCHLL037",
+            "CURVAS_UKCHLL038",
+            "CURVAS_UKCHLL039",
+            "CURVAS_UKCHLL041",
+            "CURVAS_UKCHLL042",
+            "CURVAS_UKCHLL043",
+            "CURVAS_UKCHLL045",
+            "CURVAS_UKCHLL046",
+            "CURVAS_UKCHLL048"
+        ],
+        "val": [
+            "CURVAS_UKCHLL002",
+            "CURVAS_UKCHLL009",
+            "CURVAS_UKCHLL015",
+            "CURVAS_UKCHLL017"
+        ]
+    }
+]
