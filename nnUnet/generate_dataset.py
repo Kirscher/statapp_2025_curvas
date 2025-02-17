@@ -33,7 +33,7 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
     all_folders = [f for f in s3.ls(source_folder) if 'UKCH' in f]
     
     # Dossier de destination pour nnU-Net
-    dest_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/labelsTr"
+    dest_folder = "leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr"
     
     for folder in all_folders:
         # Liste les fichiers d'annotation dans le dossier
@@ -63,7 +63,7 @@ def merge_annotations(s3, source_folder="leoacpr/diffusion"):
             '''output_filename = f"{folder_name}_merged_annotation.nii.gz"
             temp_output = os.path.join(temp_dir, output_filename)'''
             
-            #respecte naming convention
+            #respect naming convention
             patient_id = re.sub(r'(\D)(\d{3})', r'\1_\2', folder_name)
             print(patient_id)
             output_filename = f"{patient_id}.nii.gz"
