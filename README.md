@@ -13,6 +13,8 @@ Welcome to the repository for the ENSAE StatApp project!
 ## Folder Structure
 
 ```
-├── values/               # Contains a pull of IML-DKFZ/values repository
+├── dataset_preparation.ipynb/               # Notebook for dataset preparation
 ├── README.md             # Project documentation
 ```
+
+![progress](nnUNet_results/Dataset475_CURVAS/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/progress.png)
