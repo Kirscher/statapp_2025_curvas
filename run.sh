@@ -10,4 +10,4 @@ nnUNetv2_plan_and_preprocess -d 475 --verify_dataset_integrity -c 3d_fullres
 
 echo "=== Entraînement NNUnet (475_CURVAS) ==="
 
-nnUNetv2_train 475 3d_fullres 0 --npz --c
+nnUNetv2_train 475 3d_fullres 0 --npz

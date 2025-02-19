@@ -21,7 +21,7 @@ J'en ai lancé un sur l'instance Onyxia du SSPCloud, qui malheureusement a crash
 
 ![progress](nnUNet_results/Dataset475_CURVAS/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/progress.png)
 
-Bien que l'entraînement ne soit pas fini, il semble ici que 150 epochs (~4h sur le SSPCloud) sont suffisantes. Il va en revanche falloir
+Bien que l'entraînement ne soit pas fini, il semble ici que 150 epochs (~12h sur le SSPCloud) sont suffisantes. Il va en revanche falloir
 utiliser une installation poussée pour pouvoir reprendre un entraînement arrêté en cours de route (pytorch ne veut pas sinon) et contrôler
 la durée des entraînements / changer d'optimiseur (voir également ensuite sur les soft labels).
 
