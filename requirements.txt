@@ -1,2 +1,0 @@
-batchgenerators==0.25.1
-nnunetv2==2.5.2
