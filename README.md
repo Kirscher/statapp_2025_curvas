@@ -13,6 +13,7 @@ Welcome to the repository for the ENSAE StatApp project!
 ## Folder Structure
 
 ```
+├── curvas-challenge/     # Contains a pull of SYCAI-Technologies/curvas-challenge repository
 ├── values/               # Contains a pull of IML-DKFZ/values repository
 ├── README.md             # Project documentation
 ```
