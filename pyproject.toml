@@ -13,7 +13,6 @@ authors = [
     { name = "Fabian Isensee (nnU-Net)", email = "f.isensee@dkfz-heidelberg.de"},
     { name = "Helmholtz Imaging Applied Computer Vision Lab (nnU-net)" }
 ]
-
 dependencies = [
     "torch>=2.1.2",
     "acvl-utils>=0.2,<0.3",  # 0.3 may bring breaking changes. Careful!
@@ -65,6 +64,7 @@ nnUNetv2_move_plans_between_datasets = "nnunetv2.experiment_planning.plans_for_p
 nnUNetv2_evaluate_folder = "nnunetv2.evaluation.evaluate_predictions:evaluate_folder_entry_point"
 nnUNetv2_evaluate_simple = "nnunetv2.evaluation.evaluate_predictions:evaluate_simple_entry_point"
 nnUNetv2_convert_MSD_dataset = "nnunetv2.dataset_conversion.convert_MSD_dataset:entry_point"
+statApp_setup = "statapp.entrypoints:setup"
 
 [project.optional-dependencies]
 dev = [
@@ -72,6 +72,9 @@ dev = [
     "ruff",
     "pre-commit"
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [build-system]
 requires = ["setuptools>=67.8.0"]
