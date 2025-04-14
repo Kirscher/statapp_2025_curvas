@@ -2,7 +2,7 @@
 name = "statapp2025curvas"
 version = "1.0.0"
 requires-python = ">=3.12"
-description = "ENSAE 2025 Applied statistics project (Medical segmentation : handling inter-rater uncertainty and variability) made with nnU-Net, a framework for out-of-the box image segmentation."
+description = "ENSAE 2025 applied statistics project (Medical segmentation : handling inter-rater uncertainty and variability) made with nnU-Net, a framework for out-of-the box image segmentation."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
@@ -35,7 +35,8 @@ dependencies = [
     "imagecodecs",
     "yacs",
     "batchgeneratorsv2>=0.2",
-    "einops"
+    "einops",
+    "typer>=0.15.2"
 ]
 
 [project.urls]
@@ -64,7 +65,7 @@ nnUNetv2_move_plans_between_datasets = "nnunetv2.experiment_planning.plans_for_p
 nnUNetv2_evaluate_folder = "nnunetv2.evaluation.evaluate_predictions:evaluate_folder_entry_point"
 nnUNetv2_evaluate_simple = "nnunetv2.evaluation.evaluate_predictions:evaluate_simple_entry_point"
 nnUNetv2_convert_MSD_dataset = "nnunetv2.dataset_conversion.convert_MSD_dataset:entry_point"
-statApp_setup = "statapp.entrypoints:setup"
+statapp2025curvas = "statapp.__main__:main"
 
 [project.optional-dependencies]
 dev = [

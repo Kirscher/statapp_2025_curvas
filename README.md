@@ -24,6 +24,12 @@ To install and use the project, please clone the repository, move to this branch
 pip install -e .
 ```
 
-Le script `prepare.py` permet de télécharger les données d'entraînement depuis le stockage MinIO du SSPCloud et de les mettre au format d'nnUnet.
+La commande `statapp2025curvas` permet ensuite d'effectuer les différentes étapes nécessaires à l'entraînement. Il est notamment possible d'éxécuter 
 
-... TODO
+```shell
+statapp2025curvas --help
+```
+
+pour afficher l'aide de la commande.
+
+TODO
