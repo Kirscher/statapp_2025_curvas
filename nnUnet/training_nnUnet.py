@@ -65,6 +65,12 @@ def download_s3_folder():
         except Exception as e:
             print(f"Erreur lors de la lecture du dossier {s3_path}: {e}")
             continue
+        
+        #ERROR CORRECTED: the nnU-Net dataset naming convention requires 4 digit for image case file, not 3. 
+        for string in ['1', '2', '3']:
+            images = Path(f"/tmp/nnunet/nnUNet_raw/Dataset001_Annot{string}/imagesTr")
+            for f in images.glob("*_000.nii.gz"):
+                f.rename(f.with_name(f.name.replace("_000.nii.gz", "_0000.nii.gz")))
     
     # Configurer les variables d'environnement
     env_vars = {
