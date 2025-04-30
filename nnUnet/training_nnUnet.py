@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 
+print(os.getenv("AWS_ACCESS_KEY_ID"))
+
 # Connexion à MinIO S3 Onyxia
 s3 = s3fs.S3FileSystem(
     client_kwargs={'endpoint_url': 'https://'+'minio.lab.sspcloud.fr'},
@@ -19,7 +21,7 @@ s3 = s3fs.S3FileSystem(
     token=os.getenv("AWS_SESSION_TOKEN")
 )
 
-print(len(s3.ls("leoacpr/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_finetune/labelsTr")))
+print(len(s3.ls("projet-statapp-segmedic/diffusion/nnunet_dataset/nnUNet_raw/Dataset001_Annot1/labelsTr")))
 
 
 
@@ -91,3 +93,6 @@ def download_s3_folder():
 
 if __name__ == "__main__":
     download_s3_folder()
+
+#il faudra uploader les documents dans le S3 onyxia attention ! car sinon tout est chargé en local"
+#tâche : reprendre tout le code et créer une fonction qui prend comme paramètre le Dataset d'annotation ciblé (on s'occupera des initialisations plus tard). 
