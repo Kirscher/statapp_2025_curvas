@@ -95,10 +95,37 @@ def download_s3_folder():
         print(f"{var_name}={path}")
     
     print("\nRedémarrez votre shell ou exécutez 'source ~/.bashrc' pour appliquer les changements.")
-
+"""
 if __name__ == "__main__":
     download_s3_folder()
-
+"""
 # il faudra uploader les documents dans le S3 onyxia attention ! car sinon tout est chargé en local"
 # tâche : reprendre tout le code et créer une fonction qui prend comme paramètre le Dataset d'annotation ciblé (on s'occupera des initialisations plus tard). 
 # en faire un jupyter notebook
+
+def upload_preprocessed_to_s3():
+    from pathlib import Path
+    from tqdm import tqdm
+
+    # Dossier local et distant
+    local_folder = Path('/tmp/nnunet/nnUNet_preprocessed')
+    s3_folder = "projet-statapp-segmedic/diffusion/nnunet_dataset/nnUNet_preprocessed"
+    
+    # Lister tous les fichiers à uploader
+    files = list(local_folder.rglob("*"))
+    
+    print(f"\nUploading nnUNet_preprocessed to {s3_folder}...")
+    with tqdm(total=len(files), desc="Upload nnUNet_preprocessed") as pbar:
+        for file_path in files:
+            if file_path.is_file():
+                relative_path = file_path.relative_to(local_folder)
+                s3_path = f"{s3_folder}/{relative_path.as_posix()}"
+                try:
+                    s3.put(str(file_path), s3_path)
+                except Exception as e:
+                    print(f"Erreur lors de l'upload de {file_path} → {s3_path}: {e}")
+            pbar.update(1)
+
+# Appel si ce fichier est exécuté directement
+if __name__ == "__main__":
+    upload_preprocessed_to_s3()
