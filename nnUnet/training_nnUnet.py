@@ -163,7 +163,6 @@ def sync_results_to_s3(interval=180):
                         print(f"[Uploader] Error uploading {s3_path}: {e}")
         #time.sleep(interval)
 
-sync_results_to_s3(interval=180)
 
 # Training function
 def run_training():
