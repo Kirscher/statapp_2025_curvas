@@ -161,25 +161,25 @@ def sync_results_to_s3(interval=180):
                         print(f"[Uploader] Uploaded: {s3_path}")
                     except Exception as e:
                         print(f"[Uploader] Error uploading {s3_path}: {e}")
-        time.sleep(interval)
+        #time.sleep(interval)
 
-
+sync_results_to_s3(interval=180)
 
 # Training function
 def run_training():
     print("[Trainer] Launching nnUNet training...")
     command = [
         "nnUNetv2_train",
-        "001",  # Dataset ID
+        "Dataset002_Annot2",  # Dataset ID
         "3d_fullres",  # Plan
-        "0",  # Fold            to try with all folds, need for-loop
+        "all",  # Fold            to try with all folds, need for-loop
         "--npz"
     ]
     subprocess.run(command)
     print("[Trainer] Training complete.")
 
 
-
+"""
 # Threads
 uploader_thread = threading.Thread(target=sync_results_to_s3, daemon=True)
 trainer_thread = threading.Thread(target=run_training)
@@ -188,4 +188,4 @@ uploader_thread.start()
 trainer_thread.start()
 
 trainer_thread.join()
-print("[Main] All done.")
+print("[Main] All done.")"""
