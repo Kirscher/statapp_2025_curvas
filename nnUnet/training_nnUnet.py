@@ -95,10 +95,10 @@ def download_s3_folder():
         print(f"{var_name}={path}")
     
     print("\nRedémarrez votre shell ou exécutez 'source ~/.bashrc' pour appliquer les changements.")
-"""
-if __name__ == "__main__":
-    download_s3_folder()
-"""
+
+"""if __name__ == "__main__":
+    download_s3_folder()"""
+
 # il faudra uploader les documents dans le S3 onyxia attention ! car sinon tout est chargé en local"
 # tâche : reprendre tout le code et créer une fonction qui prend comme paramètre le Dataset d'annotation ciblé (on s'occupera des initialisations plus tard). 
 # en faire un jupyter notebook
@@ -127,5 +127,65 @@ def upload_preprocessed_to_s3():
             pbar.update(1)
 
 # Appel si ce fichier est exécuté directement
-if __name__ == "__main__":
-    upload_preprocessed_to_s3()
+"""if __name__ == "__main__":
+    upload_preprocessed_to_s3()"""
+
+
+
+
+## Code to train the first neural network (Dataset001_Annot1)
+
+# Strategy: using multithreading to run the training and the upload to S3. 
+
+import threading
+import subprocess
+import time
+
+local_results_path = Path("/tmp/nnunet/nnUNet_results/Dataset001_Annot1")
+s3_results_path = "projet-statapp-segmedic/diffusion/nnunet_dataset/nnUNet_results/Dataset001_Annot1"
+
+# Upload function with time interval = 180 (could be longer maybe)
+# more smartly: upload as soon as the content of temp/results changes
+def sync_results_to_s3(interval=180):
+    print("[Uploader] Starting S3 sync thread.")
+    uploaded_files = set()
+    while True:
+        for file_path in local_results_path.rglob("*"):
+            if file_path.is_file():
+                rel_path = file_path.relative_to(local_results_path)
+                s3_path = f"{s3_results_path}/{rel_path.as_posix()}"
+                if s3_path not in uploaded_files:
+                    try:
+                        s3.put(str(file_path), s3_path)
+                        uploaded_files.add(s3_path)
+                        print(f"[Uploader] Uploaded: {s3_path}")
+                    except Exception as e:
+                        print(f"[Uploader] Error uploading {s3_path}: {e}")
+        time.sleep(interval)
+
+
+
+# Training function
+def run_training():
+    print("[Trainer] Launching nnUNet training...")
+    command = [
+        "nnUNetv2_train",
+        "001",  # Dataset ID
+        "3d_fullres",  # Plan
+        "0",  # Fold            to try with all folds, need for-loop
+        "--npz"
+    ]
+    subprocess.run(command)
+    print("[Trainer] Training complete.")
+
+
+
+# Threads
+uploader_thread = threading.Thread(target=sync_results_to_s3, daemon=True)
+trainer_thread = threading.Thread(target=run_training)
+
+uploader_thread.start()
+trainer_thread.start()
+
+trainer_thread.join()
+print("[Main] All done.")
