@@ -4,12 +4,13 @@
 #(OPTIONAL) Install hiddenlayer. hiddenlayer enables nnU-net to generate plots of the network 
 # topologies it generates (see Model training). To install hiddenlayer, run the following command:
 
+from tqdm import tqdm
 import torch
 #pip3 install nnunetv2
 import s3fs
 import os
 from pathlib import Path
-from tqdm import tqdm
+
 
 # Connexion à MinIO S3 Onyxia
 s3 = s3fs.S3FileSystem(
