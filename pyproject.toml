@@ -36,7 +36,10 @@ dependencies = [
     "yacs",
     "batchgeneratorsv2>=0.2",
     "einops",
-    "typer>=0.15.2"
+    "typer>=0.15.2",
+    "s3fs",
+    "python-dotenv",
+    "humanize"
 ]
 
 [project.urls]
