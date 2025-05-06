@@ -6,7 +6,7 @@ This module provides utility functions for display and logging.
 
 import logging
 import os
-import sys
+from pathlib import Path
 from datetime import datetime
 
 from rich import print
@@ -133,3 +133,26 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     logger.addHandler(rich_handler)
 
     return logger
+
+
+def setup_nnunet_env(base: Path, raw: Path, preprocessed: Path, results: Path) -> None:
+    """Sets up variable environnement to configure nnunet to use a given path
+
+    Args:
+        base (Path): base path of the data folder
+        raw (Path): path relative to base of the raw image folder
+        preprocessed (Path): path relative to base of the preprocessed image folder
+        results (Path): path relative to base of the results
+
+    """
+    env_vars = {
+        'nnUNet_raw': str(base / raw),
+        'nnUNet_preprocessed': str(base / preprocessed),
+        'nnUNet_results': str(base / results)
+    }
+    
+    for var_name, path in env_vars.items():
+        os.environ[var_name] = path
+
+    return
+    
