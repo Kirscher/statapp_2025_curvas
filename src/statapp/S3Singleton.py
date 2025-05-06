@@ -126,6 +126,29 @@ class S3Singleton:
                 deleted_objects = [obj['Key'] for obj in response['Deleted']]
 
         return deleted_objects
+    
+    def has_changed(self, local_path: str, remote_path: str) -> bool:
+        """
+        Tests if a file has been changed based on the timestaps.
+
+        Args:
+            local_path (str): relative path of the local file
+            remote_path (str): path of the remote file
+
+        Returns:
+            bool: indicates if the file has changed
+        """
+
+        # Parse the remote path to get bucket and key
+        parts = remote_path.split('/', 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else os.path.basename(local_path)
+
+
+        remote = self._s3_client.get_object(Bucket=bucket, Key=key)
+        print(remote['LastModified'])
+        return int(remote["LastModified"].strftime('%s')) != int(os.path.getmtime(local_path))
+
 
     def upload_file(self, local_path: str, remote_path: str, callback: Callable[[int], None] = None) -> None:
         """
@@ -137,6 +160,9 @@ class S3Singleton:
             callback (callable, optional): Function to call with progress updates
                                           Should accept (bytes_transferred)
         """
+        if (not self.has_changed(local_path, remote_path)):
+            return
+
         # Parse the remote path to get bucket and key
         parts = remote_path.split('/', 1)
         bucket = parts[0]
