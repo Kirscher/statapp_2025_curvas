@@ -9,7 +9,7 @@ import os
 import boto3
 from botocore.client import Config
 from boto3.s3.transfer import TransferConfig
-from typing import Optional, List, Callable, Any, Dict, Union
+from typing import Optional, List, Callable, Any, Dict, Union, Tuple
 from pathlib import Path
 
 
@@ -24,6 +24,13 @@ class S3Singleton:
     _instance: Optional['S3Singleton'] = None
     _s3_client = None
     _s3_resource = None
+    # Default transfer configuration for all uploads
+    _transfer_config = TransferConfig(
+        multipart_threshold=1024 * 25,  # 25KB - use multipart upload for anything larger than this
+        max_concurrency=10,             # Number of threads for concurrent uploads
+        multipart_chunksize=1024 * 25,  # 25KB per part - smaller parts means more frequent callbacks
+        use_threads=True                # Use threads for faster uploads
+    )
 
     def __new__(cls) -> 'S3Singleton':
         """
@@ -35,23 +42,17 @@ class S3Singleton:
         if cls._instance is None:
             cls._instance = super(S3Singleton, cls).__new__(cls)
 
-            # Configure boto3 client with endpoint URL and credentials
-            cls._instance._s3_client = boto3.client(
-                's3',
-                endpoint_url=os.environ["S3_ENDPOINT"],
-                aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-                aws_secret_access_key=os.environ["S3_SECRET_KEY"],
-                config=Config(signature_version='s3v4')
-            )
+            # Common connection parameters
+            conn_params = {
+                'endpoint_url': os.environ["S3_ENDPOINT"],
+                'aws_access_key_id': os.environ["S3_ACCESS_KEY"],
+                'aws_secret_access_key': os.environ["S3_SECRET_KEY"],
+                'config': Config(signature_version='s3v4')
+            }
 
-            # Also create a resource for higher-level operations
-            cls._instance._s3_resource = boto3.resource(
-                's3',
-                endpoint_url=os.environ["S3_ENDPOINT"],
-                aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-                aws_secret_access_key=os.environ["S3_SECRET_KEY"],
-                config=Config(signature_version='s3v4')
-            )
+            # Configure boto3 client and resource with the same parameters
+            cls._instance._s3_client = boto3.client('s3', **conn_params)
+            cls._instance._s3_resource = boto3.resource('s3', **conn_params)
         return cls._instance
 
     @property
@@ -126,7 +127,23 @@ class S3Singleton:
                 deleted_objects = [obj['Key'] for obj in response['Deleted']]
 
         return deleted_objects
-    
+
+    def _parse_remote_path(self, remote_path: str, local_path: str = None) -> Tuple[str, str]:
+        """
+        Parse a remote path into bucket and key components.
+
+        Args:
+            remote_path (str): Path in S3 (bucket/key format)
+            local_path (str, optional): Local path to use for the key if not specified in remote_path
+
+        Returns:
+            Tuple[str, str]: Bucket and key
+        """
+        parts = remote_path.split('/', 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else (os.path.basename(local_path) if local_path else "")
+        return bucket, key
+
     def has_changed(self, local_path: str, remote_path: str) -> bool:
         """
         Tests if a file has been changed based on the timestaps.
@@ -138,13 +155,7 @@ class S3Singleton:
         Returns:
             bool: indicates if the file has changed
         """
-
-        # Parse the remote path to get bucket and key
-        parts = remote_path.split('/', 1)
-        bucket = parts[0]
-        key = parts[1] if len(parts) > 1 else os.path.basename(local_path)
-
-
+        bucket, key = self._parse_remote_path(remote_path, local_path)
         remote = self._s3_client.get_object(Bucket=bucket, Key=key)
         print(remote['LastModified'])
         return int(remote["LastModified"].strftime('%s')) != int(os.path.getmtime(local_path))
@@ -163,29 +174,15 @@ class S3Singleton:
         if (not self.has_changed(local_path, remote_path)):
             return
 
-        # Parse the remote path to get bucket and key
-        parts = remote_path.split('/', 1)
-        bucket = parts[0]
-        key = parts[1] if len(parts) > 1 else os.path.basename(local_path)
-
-        # Configure transfer config to use multipart uploads with small chunk size
-        # This ensures the callback is called frequently during upload
-        config = boto3.s3.transfer.TransferConfig(
-            multipart_threshold=1024 * 25,  # 25KB - use multipart upload for anything larger than this
-            max_concurrency=10,             # Number of threads for concurrent uploads
-            multipart_chunksize=1024 * 25,  # 25KB per part - smaller parts means more frequent callbacks
-            use_threads=True                # Use threads for faster uploads
-        )
+        bucket, key = self._parse_remote_path(remote_path, local_path)
 
         # Upload the file with progress tracking
-        # Note: callback is passed as a separate parameter, not in ExtraArgs
         self._s3_client.upload_file(
             local_path, 
             bucket, 
             key,
-            ExtraArgs={},
             Callback=callback,
-            Config=config
+            Config=self._transfer_config
         )
 
     def upload_directory(self, local_dir: str, remote_dir: str, 
@@ -206,9 +203,7 @@ class S3Singleton:
         local_path = Path(local_dir)
 
         # Parse the remote path to get bucket and prefix
-        parts = remote_dir.split('/', 1)
-        bucket = parts[0]
-        prefix = parts[1] if len(parts) > 1 else ""
+        bucket, prefix = self._parse_remote_path(remote_dir)
 
         # Walk through the directory and upload each file
         for root, _, files in os.walk(local_dir):
@@ -221,7 +216,6 @@ class S3Singleton:
                 # Construct the S3 key with the prefix and relative path
                 s3_key = os.path.join(prefix, rel_path).replace('\\', '/')
 
-                # Upload the file
                 # Create a callback wrapper that includes the filename if callback was provided
                 file_callback = None
                 if callback:
@@ -229,22 +223,12 @@ class S3Singleton:
                         callback(bytes_transferred, file)
                     file_callback = file_callback_fn
 
-                # Configure transfer config to use multipart uploads with small chunk size
-                # This ensures the callback is called frequently during upload
-                config = TransferConfig(
-                    multipart_threshold=1024 * 25,  # 25KB - use multipart upload for anything larger than this
-                    max_concurrency=10,             # Number of threads for concurrent uploads
-                    multipart_chunksize=1024 * 25,  # 25KB per part - smaller parts means more frequent callbacks
-                    use_threads=True                # Use threads for faster uploads
-                )
-
                 self._s3_client.upload_file(
                     local_file_path, 
                     bucket, 
                     s3_key,
-                    ExtraArgs={},
                     Callback=file_callback,
-                    Config=config
+                    Config=self._transfer_config
                 )
 
                 uploaded_files.append(f"{bucket}/{s3_key}")

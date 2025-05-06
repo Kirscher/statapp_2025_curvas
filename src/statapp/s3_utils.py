@@ -6,14 +6,10 @@ including uploading files and directories, listing contents,
 and deleting objects.
 """
 
-import os
-import boto3
-from botocore.client import Config
-from boto3.s3.transfer import TransferConfig
-from typing import Optional, List, Callable, Any, Dict, Union
-from pathlib import Path
+from typing import List, Callable, Any, Dict
 
 from statapp.S3Singleton import S3Singleton
+
 
 def list_data_directory() -> List[Dict[str, Any]]:
     """

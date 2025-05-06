@@ -32,7 +32,7 @@ def train(
     if dataset == "":
         datasets = os.listdir(Path(base_directory)/Path(preprocessed_directory))
     else:
-        datasets == [dataset]
+        datasets = [dataset]
     
     for dataset in datasets:
         # ignore hidden files
