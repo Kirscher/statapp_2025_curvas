@@ -7,6 +7,7 @@ ensuring only one connection is created throughout the application.
 
 import os
 import boto3
+import hashlib
 from botocore.client import Config
 from boto3.s3.transfer import TransferConfig
 from typing import Optional, List, Callable, Any, Dict, Union, Tuple
@@ -144,21 +145,69 @@ class S3Singleton:
         key = parts[1] if len(parts) > 1 else (os.path.basename(local_path) if local_path else "")
         return bucket, key
 
+    def _calculate_local_md5(self, file_path: str) -> str:
+        """
+        Calculate MD5 hash for a local file.
+
+        Args:
+            file_path (str): Path to the local file
+
+        Returns:
+            str: MD5 hash of the file content
+        """
+        md5_hash = hashlib.md5()
+        with open(file_path, "rb") as f:
+            # Read the file in chunks to handle large files efficiently
+            for chunk in iter(lambda: f.read(4096), b""):
+                md5_hash.update(chunk)
+        return md5_hash.hexdigest()
+
     def has_changed(self, local_path: str, remote_path: str) -> bool:
         """
-        Tests if a file has been changed based on the timestaps.
+        Tests if a file has been changed based on content comparison.
+
+        Downloads the file from S3 and compares its MD5 hash with the local file.
+        This is more reliable than comparing the ETag, as S3 may calculate ETags
+        differently than a standard MD5 hash, especially for multipart uploads.
 
         Args:
             local_path (str): relative path of the local file
             remote_path (str): path of the remote file
 
         Returns:
-            bool: indicates if the file has changed
+            bool: indicates if the file has changed (True if content is different)
         """
+        import tempfile
+
+        # Parse the remote path to get bucket and key
         bucket, key = self._parse_remote_path(remote_path, local_path)
-        remote = self._s3_client.get_object(Bucket=bucket, Key=key)
-        print(remote['LastModified'])
-        return int(remote["LastModified"].strftime('%s')) != int(os.path.getmtime(local_path))
+
+        try:
+            # Calculate MD5 hash of local file
+            local_md5 = self._calculate_local_md5(local_path)
+
+            # Create a temporary file to download the S3 object
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_path = temp_file.name
+
+            # Download the file from S3
+            self._s3_client.download_file(bucket, key, temp_path)
+
+            # Calculate MD5 hash of the downloaded file
+            remote_md5 = self._calculate_local_md5(temp_path)
+
+            # Clean up the temporary file
+            import os
+            os.unlink(temp_path)
+
+            # Compare hashes
+            return local_md5.lower() != remote_md5.lower()
+
+        except Exception as e:
+            # If there's an error (e.g., file doesn't exist on S3), consider it changed
+            import logging
+            logging.error(f"Error checking if file has changed: {str(e)}")
+            return True
 
 
     def upload_file(self, local_path: str, remote_path: str, callback: Callable[[int], None] = None) -> None:
