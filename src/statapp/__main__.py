@@ -12,6 +12,7 @@ from statapp.about import app as about
 from statapp.prepare_dataset import app as prepare
 from statapp.upload_data import app as upload_data
 from statapp.empty_data import app as empty_data
+from statapp.train import app as train
 
 from dotenv import load_dotenv
 
@@ -24,6 +25,7 @@ app.add_typer(about)
 app.add_typer(prepare)
 app.add_typer(upload_data)
 app.add_typer(empty_data)
+app.add_typer(train)
 
 def main() -> None:
     """
