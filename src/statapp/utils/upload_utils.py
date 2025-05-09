@@ -6,15 +6,13 @@ This module provides shared functionality for uploading files to S3 storage.
 
 import os
 import time
-from typing import Callable, List
 from pathlib import Path
 
-import typer
 from rich.text import Text
 
 import statapp.utils as utils
-from statapp.utils.progress_tracker import ProgressTracker, track_progress
 from statapp.utils import s3_utils
+from statapp.utils.progress_tracker import ProgressTracker, track_progress
 
 
 def upload_directory_to_s3(

@@ -10,18 +10,18 @@ Usage:
     If no arguments are provided, it will use a sample file from the training_set directory.
 """
 
+import hashlib
 import os
 import sys
 import time
-import hashlib
-from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Import the S3Singleton class
-from statapp.S3Singleton import S3Singleton
+from statapp.core.S3Singleton import S3Singleton
 
 
 def calculate_md5(file_path):

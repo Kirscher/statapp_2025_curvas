@@ -11,12 +11,12 @@ Usage:
     If no arguments are provided, it will use a sample file from the training_set directory.
 """
 
+import hashlib
 import os
 import sys
-import time
-import hashlib
 import tempfile
-from pathlib import Path
+import time
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file

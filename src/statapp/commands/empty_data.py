@@ -5,12 +5,12 @@ This module provides a command to remove all files and folders from the data dir
 """
 
 import os
+
 import typer
-import logging
 from rich.text import Text
 
-from statapp.utils import utils
 from statapp.utils import s3_utils
+from statapp.utils import utils
 
 app = typer.Typer()
 

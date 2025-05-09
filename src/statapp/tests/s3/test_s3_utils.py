@@ -8,20 +8,19 @@ Usage:
     python -m statapp.tests.s3.test_s3_utils
 """
 
-import os
-import sys
-import time
 import hashlib
+import os
 import tempfile
-from pathlib import Path
+import time
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Import the s3_utils module
-from statapp import s3_utils
-from statapp.utils import pretty_print
+from statapp.utils import s3_utils
+from statapp.utils.utils import pretty_print
 
 
 def calculate_md5(file_path):

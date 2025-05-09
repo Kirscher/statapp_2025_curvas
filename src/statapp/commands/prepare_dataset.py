@@ -16,6 +16,7 @@ from statapp.utils import s3_utils
 from statapp.utils.progress_tracker import ProgressTracker, track_progress
 from statapp.utils.utils import setup_nnunet_env, info, pretty_print, create_progress
 from nnunetv2.dataset_conversion.generate_dataset_json import generate_dataset_json
+from nnunetv2.experiment_planning.plan_and_preprocess_entrypoints import plan_and_preprocess
 
 # Constants
 NNUNET_RAW_DIR = "nnUNet_raw"
@@ -38,11 +39,19 @@ app = typer.Typer()
 def prepare(
     annotator: str = typer.Argument(..., help="Annotator (1/2/3)"),
     patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 001 034) or all for all"),
+    skip: bool = typer.Option(False, "--skip", help="Skip download and only run preprocessing"),
+    num_processes_fingerprint: int = typer.Option(2, "--num-processes-fingerprint", "-npfp", help="Number of processes to use for fingerprint extraction"),
+    num_processes: int = typer.Option(2, "--num-processes", "-np", help="Number of processes to use for preprocessing"),
 ) -> None:
     """
     Prepare a dataset for analysis in the S3 data folder.
 
     Downloads images and annotations from S3 and organizes them for nnUNet processing.
+    Then runs nnUNet planning and preprocessing for dataset 475 with 3d_fullres configuration.
+
+    Use --skip to skip the download part and only run the path setup and preprocessing.
+    Use --num-processes-fingerprint to set the number of processes for fingerprint extraction (default: 2).
+    Use --num-processes to set the number of processes for preprocessing (default: 2).
     """
     # Validate annotator input
     if annotator not in ["1", "2", "3"]:
@@ -95,128 +104,140 @@ def prepare(
     os.makedirs(dataset_dir, exist_ok=True)
     os.makedirs(images_dir, exist_ok=True)
     os.makedirs(labels_dir, exist_ok=True)
+    if skip:
+        pretty_print("[bold yellow]Skipping download as requested with --skip option[/bold yellow]")
+    else:
+        # Prepare file list for downloading
+        files_to_download = []
+        bucket = os.environ['S3_BUCKET']
 
-    # Setup environment variables
-    setup_nnunet_env(Path.cwd(), Path(NNUNET_RAW_DIR), Path("nnUNet_preprocessed"), Path("nnUNet_results"))
+        for patient in selected_patients:
+            # Find the image and annotation files for this patient
+            patient_prefix = f"{os.environ['S3_DATA_DIR']}/UKCHLL{patient}"
+            image_key = f"{patient_prefix}/image.nii.gz"
+            annotation_key = f"{patient_prefix}/annotation_{annotator}.nii.gz"
 
-    # Prepare file list for downloading
-    files_to_download = []
-    bucket = os.environ['S3_BUCKET']
+            # Check if the files exist
+            image_exists = any(item['Key'] == image_key for item in contents)
+            annotation_exists = any(item['Key'] == annotation_key for item in contents)
 
-    for patient in selected_patients:
-        # Find the image and annotation files for this patient
-        patient_prefix = f"{os.environ['S3_DATA_DIR']}/UKCHLL{patient}"
-        image_key = f"{patient_prefix}/image.nii.gz"
-        annotation_key = f"{patient_prefix}/annotation_{annotator}.nii.gz"
+            if image_exists and annotation_exists:
+                # Create separate entries for image and annotation files
+                files_to_download.append({
+                    'type': 'image',
+                    'patient': patient,
+                    'remote_path': f"{bucket}/{image_key}",
+                    'local_path': str(images_dir / f"{PATIENT_PREFIX}_{patient}_0000{FILE_ENDING}"),
+                    'display_name': f"image for UKCHLL{patient}"
+                })
 
-        # Check if the files exist
-        image_exists = any(item['Key'] == image_key for item in contents)
-        annotation_exists = any(item['Key'] == annotation_key for item in contents)
+                files_to_download.append({
+                    'type': 'annotation',
+                    'patient': patient,
+                    'remote_path': f"{bucket}/{annotation_key}",
+                    'local_path': str(labels_dir / f"{PATIENT_PREFIX}_{patient}{FILE_ENDING}"),
+                    'display_name': f"annotation {annotator} for UKCHLL{patient}"
+                })
+            else:
+                if not image_exists:
+                    pretty_print(f"[bold yellow]Warning:[/bold yellow] Image file for UKCHLL{patient} not found")
+                if not annotation_exists:
+                    pretty_print(f"[bold yellow]Warning:[/bold yellow] Annotation {annotator} for UKCHLL{patient} not found")
 
-        if image_exists and annotation_exists:
-            # Create separate entries for image and annotation files
-            files_to_download.append({
-                'type': 'image',
-                'patient': patient,
-                'remote_path': f"{bucket}/{image_key}",
-                'local_path': str(images_dir / f"{PATIENT_PREFIX}_{patient}_0000{FILE_ENDING}"),
-                'display_name': f"image for UKCHLL{patient}"
-            })
+        if not files_to_download:
+            pretty_print("[bold red]Error:[/bold red] No valid files to download")
+            return
 
-            files_to_download.append({
-                'type': 'annotation',
-                'patient': patient,
-                'remote_path': f"{bucket}/{annotation_key}",
-                'local_path': str(labels_dir / f"{PATIENT_PREFIX}_{patient}{FILE_ENDING}"),
-                'display_name': f"annotation {annotator} for UKCHLL{patient}"
-            })
-        else:
-            if not image_exists:
-                pretty_print(f"[bold yellow]Warning:[/bold yellow] Image file for UKCHLL{patient} not found")
-            if not annotation_exists:
-                pretty_print(f"[bold yellow]Warning:[/bold yellow] Annotation {annotator} for UKCHLL{patient} not found")
+        # Function to get file size (now uses actual S3 file size)
+        def get_file_size(file_info):
+            # Get the actual file size from S3 for a single file
+            bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+            return s3_utils.get_file_size(bucket, key)
 
-    if not files_to_download:
-        pretty_print("[bold red]Error:[/bold red] No valid files to download")
-        return
+        # Function to process each file
+        def process_file(file_info, progress_tracker):
+            patient = file_info['patient']
+            file_type = file_info['type']
+            display_name = file_info['display_name']
 
-    # Function to get file size (now uses actual S3 file size)
-    def get_file_size(file_info):
-        # Get the actual file size from S3 for a single file
-        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
-        return s3_utils.get_file_size(bucket, key)
+            # Get the file size
+            file_size = get_file_size(file_info)
 
-    # Function to process each file
-    def process_file(file_info, progress_tracker):
-        patient = file_info['patient']
-        file_type = file_info['type']
-        display_name = file_info['display_name']
+            # Record start time
+            start_time = time.time()
 
-        # Get the file size
-        file_size = get_file_size(file_info)
+            try:
+                # Start tracking file download
+                progress_tracker.start_file(
+                    file_info, 
+                    f"Downloading {display_name}", 
+                    file_size
+                )
 
-        # Record start time
-        start_time = time.time()
+                # Download file
+                success = s3_utils.download_file(
+                    file_info['remote_path'],
+                    file_info['local_path'],
+                    callback=progress_tracker.get_progress_callback(
+                        f"Downloading {display_name}",
+                        file_size,
+                        start_time
+                    )
+                )
 
-        try:
-            # Start tracking file download
-            progress_tracker.start_file(
-                file_info, 
-                f"Downloading {display_name}", 
-                file_size
-            )
-
-            # Download file
-            success = s3_utils.download_file(
-                file_info['remote_path'],
-                file_info['local_path'],
-                callback=progress_tracker.get_progress_callback(
+                # Complete file download
+                progress_tracker.complete_file(
                     f"Downloading {display_name}",
                     file_size,
-                    start_time
+                    start_time,
+                    success=success
                 )
-            )
 
-            # Complete file download
-            progress_tracker.complete_file(
-                f"Downloading {display_name}",
-                file_size,
-                start_time,
-                success=success
-            )
+                if not success:
+                    raise Exception(f"Failed to download {display_name}")
 
-            if not success:
-                raise Exception(f"Failed to download {display_name}")
+            except Exception as e:
+                # Mark file as failed
+                progress_tracker.complete_file(
+                    f"Error downloading {display_name}",
+                    file_size,
+                    start_time,
+                    success=False
+                )
+                pretty_print(f"[bold red]Error processing {display_name}: {str(e)}[/bold red]")
 
-        except Exception as e:
-            # Mark file as failed
-            progress_tracker.complete_file(
-                f"Error downloading {display_name}",
-                file_size,
-                start_time,
-                success=False
-            )
-            pretty_print(f"[bold red]Error processing {display_name}: {str(e)}[/bold red]")
+        # Track progress and process files
+        track_progress(files_to_download, get_file_size, process_file)
 
-    # Track progress and process files
-    track_progress(files_to_download, get_file_size, process_file)
+        # Generate dataset.json file
+        pretty_print(f"[bold]Generating dataset.json file...[/bold]")
 
-    # Generate dataset.json file
-    pretty_print(f"[bold]Generating dataset.json file...[/bold]")
+        # Count the number of unique patients (each patient has both image and annotation)
+        num_patients = len(set(file_info['patient'] for file_info in files_to_download))
 
-    # Count the number of unique patients (each patient has both image and annotation)
-    num_patients = len(set(file_info['patient'] for file_info in files_to_download))
+        # Generate dataset.json file
+        generate_dataset_json(
+            output_folder=str(dataset_dir),
+            channel_names=CHANNEL_NAMES,
+            labels=LABELS,
+            num_training_cases=num_patients,
+            file_ending=FILE_ENDING
+        )
 
-    generate_dataset_json(
-        output_folder=str(dataset_dir),
-        channel_names=CHANNEL_NAMES,
-        labels=LABELS,
-        num_training_cases=num_patients,
-        file_ending=FILE_ENDING
+        pretty_print(f"[bold green]Dataset preparation complete![/bold green]")
+        pretty_print(f"[bold]Dataset directory: {dataset_dir}[/bold]")
+        pretty_print(f"[bold]Images directory: {images_dir}[/bold]")
+        pretty_print(f"[bold]Labels directory: {labels_dir}[/bold]")
+        pretty_print(f"[bold]Dataset JSON file: {dataset_dir / 'dataset.json'}[/bold]")
+
+    # Run plan_and_preprocess
+    pretty_print(f"[bold]Running nnUNet planning and preprocessing for dataset 475...[/bold]")
+    plan_and_preprocess(
+        dataset_ids=[475],
+        configurations=["3d_fullres"],
+        verify_dataset_integrity=True,
+        num_processes_fingerprint=num_processes_fingerprint,
+        num_processes=num_processes
     )
 
-    pretty_print(f"[bold green]Dataset preparation complete![/bold green]")
-    pretty_print(f"[bold]Dataset directory: {dataset_dir}[/bold]")
-    pretty_print(f"[bold]Images directory: {images_dir}[/bold]")
-    pretty_print(f"[bold]Labels directory: {labels_dir}[/bold]")
-    pretty_print(f"[bold]Dataset JSON file: {dataset_dir / 'dataset.json'}[/bold]")
+    pretty_print(f"[bold green]nnUNet planning and preprocessing complete![/bold green]")

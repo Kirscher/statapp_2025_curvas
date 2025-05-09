@@ -4,14 +4,12 @@ Dataset preparation module for the statapp application.
 This module provides commands for preparing datasets for analysis.
 """
 
-from pathlib import Path
-from rich.text import Text
-import typer
-from typing import Optional
-from statapp.utils.utils import setup_nnunet_env
 import subprocess
+from pathlib import Path
 
-from statapp.utils import utils
+import typer
+
+from statapp.utils.utils import setup_nnunet_env
 
 app = typer.Typer()
 

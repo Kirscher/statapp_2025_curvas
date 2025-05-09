@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import the S3Singleton class
-from statapp.S3Singleton import S3Singleton
+from statapp.core.S3Singleton import S3Singleton
 
 
 def test_has_changed(local_path, remote_path):

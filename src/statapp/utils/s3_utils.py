@@ -7,11 +7,9 @@ listing contents, and deleting objects.
 """
 
 import os
-import time
-import tempfile
 import shutil
-from pathlib import Path
-from typing import List, Dict, Any, Callable, Optional, Tuple, Union
+import tempfile
+from typing import List, Dict, Any, Callable, Tuple
 
 from statapp.core.S3Singleton import S3Singleton
 

@@ -1,5 +1,7 @@
 from nnunetv2.configuration import default_num_processes
 from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerprints, plan_experiments, preprocess
+import logging
+from typing import List, Union, Optional, Tuple
 
 
 def extract_fingerprint_entry():
@@ -194,6 +196,72 @@ def plan_and_preprocess_entry():
     if not args.no_pp:
         print('Preprocessing...')
         preprocess(args.d, plans_identifier, args.c, np, args.verbose)
+
+
+def plan_and_preprocess(
+    dataset_ids: List[int],
+    fingerprint_extractor_name: str = 'DatasetFingerprintExtractor',
+    num_processes_fingerprint: int = 8,
+    verify_dataset_integrity: bool = False,
+    no_preprocessing: bool = False,
+    clean: bool = False,
+    planner_name: str = 'ExperimentPlanner',
+    gpu_memory_target: Optional[float] = None,
+    preprocessor_name: str = 'DefaultPreprocessor',
+    overwrite_target_spacing: Optional[List[float]] = None,
+    overwrite_plans_name: Optional[str] = None,
+    configurations: List[str] = ['2d', '3d_fullres', '3d_lowres'],
+    num_processes: Optional[Union[int, List[int]]] = None,
+    verbose: bool = False,
+    logger: Optional[logging.Logger] = None
+) -> None:
+    """
+    Function that runs fingerprint extraction, experiment planning, and preprocessing.
+
+    Args:
+        dataset_ids: List of dataset IDs to process
+        fingerprint_extractor_name: Name of the Dataset Fingerprint Extractor class
+        num_processes_fingerprint: Number of processes used for fingerprint extraction
+        verify_dataset_integrity: Whether to check dataset integrity
+        no_preprocessing: If True, only run fingerprint extraction and experiment planning
+        clean: Whether to overwrite existing fingerprints
+        planner_name: Name of the Experiment Planner class
+        gpu_memory_target: Custom GPU memory target in GB
+        preprocessor_name: Name of the preprocessor class
+        overwrite_target_spacing: Custom target spacing for 3d_fullres and 3d_cascade_fullres
+        overwrite_plans_name: Custom plans identifier
+        configurations: Configurations for which preprocessing should be run
+        num_processes: Number of processes to use for preprocessing
+        verbose: Whether to print verbose output
+        logger: Logger instance to use for logging
+    """
+    # Use logger if provided
+    if logger:
+        log = logger.info
+    else:
+        log = print
+
+    # fingerprint extraction
+    log("Fingerprint extraction...")
+    extract_fingerprints(dataset_ids, fingerprint_extractor_name, num_processes_fingerprint, 
+                        verify_dataset_integrity, clean, verbose)
+
+    # experiment planning
+    log('Experiment planning...')
+    plans_identifier = plan_experiments(dataset_ids, planner_name, gpu_memory_target, preprocessor_name,
+                                      overwrite_target_spacing, overwrite_plans_name)
+
+    # manage default num_processes
+    if num_processes is None:
+        default_np = {"2d": 8, "3d_fullres": 4, "3d_lowres": 8}
+        np = [default_np[c] if c in default_np.keys() else 4 for c in configurations]
+    else:
+        np = num_processes
+
+    # preprocessing
+    if not no_preprocessing:
+        log('Preprocessing...')
+        preprocess(dataset_ids, plans_identifier, configurations, np, verbose)
 
 
 if __name__ == '__main__':

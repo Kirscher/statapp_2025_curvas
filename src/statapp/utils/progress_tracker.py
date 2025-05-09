@@ -13,7 +13,7 @@ from typing import List, Callable, Any
 import humanize
 from rich.live import Live
 
-from statapp.utils.misc import console, create_dual_progress
+from statapp.utils.utils import console, create_dual_progress
 
 
 class ProgressTracker:

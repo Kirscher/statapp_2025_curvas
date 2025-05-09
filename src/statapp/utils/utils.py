@@ -6,15 +6,14 @@ This module provides utility functions for display and logging.
 
 import logging
 import os
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from rich import print
-from rich.panel import Panel
-from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
-from rich.text import Text
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.panel import Panel
+from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
+from rich.text import Text
 
 # Create a shared console instance for consistent output
 console = Console()
