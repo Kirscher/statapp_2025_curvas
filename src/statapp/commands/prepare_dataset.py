@@ -14,12 +14,11 @@ from typing import Optional, List, Dict, Any
 
 from statapp.utils import s3_utils
 from statapp.utils.progress_tracker import ProgressTracker, track_progress
-from statapp.utils.utils import setup_nnunet_env, info, pretty_print, create_progress
+from statapp.utils.utils import setup_nnunet_env, info, pretty_print, create_progress, setup_logging
 from nnunetv2.dataset_conversion.generate_dataset_json import generate_dataset_json
 from nnunetv2.experiment_planning.plan_and_preprocess_entrypoints import plan_and_preprocess
 
 # Constants
-NNUNET_RAW_DIR = "nnUNet_raw"
 DATASET_PREFIX = "Dataset475_CURVAS_ANNO"
 PATIENT_PREFIX = "CURVAS"
 FILE_ENDING = ".nii.gz"
@@ -42,6 +41,7 @@ def prepare(
     skip: bool = typer.Option(False, "--skip", help="Skip download and only run preprocessing"),
     num_processes_fingerprint: int = typer.Option(2, "--num-processes-fingerprint", "-npfp", help="Number of processes to use for fingerprint extraction"),
     num_processes: int = typer.Option(2, "--num-processes", "-np", help="Number of processes to use for preprocessing"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
     """
     Prepare a dataset for analysis in the S3 data folder.
@@ -52,10 +52,14 @@ def prepare(
     Use --skip to skip the download part and only run the path setup and preprocessing.
     Use --num-processes-fingerprint to set the number of processes for fingerprint extraction (default: 2).
     Use --num-processes to set the number of processes for preprocessing (default: 2).
+    Use --verbose to enable verbose logging output.
     """
+    # Set up logger
+    logger = setup_logging(verbose)
+
     # Validate annotator input
     if annotator not in ["1", "2", "3"]:
-        pretty_print(f"[bold red]Error:[/bold red] Annotator must be 1, 2, or 3. Got {annotator}")
+        logger.error(f"Annotator must be 1, 2, or 3. Got {annotator}")
         return
 
     # List contents of the data directory
@@ -95,7 +99,7 @@ def prepare(
     pretty_print(f"[bold green]Processing {len(selected_patients)} patients with annotator {annotator}[/bold green]")
 
     # Create necessary directories
-    nnunet_raw_dir = Path(NNUNET_RAW_DIR)
+    nnunet_raw_dir = Path("nnUNet_raw")
     dataset_dir = nnunet_raw_dir / f"{DATASET_PREFIX}{annotator}"
     images_dir = dataset_dir / "imagesTr"
     labels_dir = dataset_dir / "labelsTr"
@@ -231,13 +235,14 @@ def prepare(
         pretty_print(f"[bold]Dataset JSON file: {dataset_dir / 'dataset.json'}[/bold]")
 
     # Run plan_and_preprocess
-    pretty_print(f"[bold]Running nnUNet planning and preprocessing for dataset 475...[/bold]")
+    logger.info("Running nnUNet planning and preprocessing for dataset 475...")
     plan_and_preprocess(
         dataset_ids=[475],
         configurations=["3d_fullres"],
         verify_dataset_integrity=True,
         num_processes_fingerprint=num_processes_fingerprint,
-        num_processes=num_processes
+        num_processes=[num_processes],
+        logger=logger
     )
 
-    pretty_print(f"[bold green]nnUNet planning and preprocessing complete![/bold green]")
+    logger.info("nnUNet planning and preprocessing complete!")

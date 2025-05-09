@@ -1,10 +1,12 @@
-# Medical segmentation : handling inter-rater uncertainty and variability
+# Medical Segmentation: Handling Inter-Rater Uncertainty and Variability
 
-#### ENSAE 2025 Applied statistics 
+#### ENSAE 2025 Applied Statistics Project
 
-Welcome to the repository for the ENSAE StatApp project!
+Welcome to the repository for the ENSAE StatApp project! This project focuses on medical image segmentation with a special emphasis on handling inter-rater uncertainty and variability.
 
 ## Project Overview
+
+This project is a fork of [nnU-Net v2](https://github.com/MIC-DKFZ/nnUNet), a powerful framework for medical image segmentation, with a custom command-line interface (CLI) built on top of it. The CLI provides easy access to various functionalities including dataset preparation, model training, and data management.
 
 **Team Members:**
 - Lucas CUMUNEL
@@ -12,24 +14,132 @@ Welcome to the repository for the ENSAE StatApp project!
 - Léo LEROY
 - Rémy SIAHAAN-GENSOLLEN
 
-## Training
+## Installation
 
-This branch contains the code for the training of the differents models used.
+To install and use the project:
 
-### Installation
+1. Clone the repository:
+   ```shell
+   git clone https://github.com/your-username/statapp_2025_curvas.git
+   cd statapp_2025_curvas
+   ```
 
-To install and use the project, please clone the repository, move to this branch and run
+2. Install the package in development mode:
+   ```shell
+   pip install -e .
+   ```
 
-```shell
-pip install -e .
-```
+3. Set up environment variables (optional):
+   - Create a `.env` file in the project root with the following variables:
+     ```
+     S3_BUCKET=your-bucket-name
+     S3_DATA_DIR=data
+     S3_ARTIFACTS_DIR=artifacts
+     ```
+   - These variables are used for S3 storage integration if you're using that feature
 
-La commande `statapp2025curvas` permet ensuite d'effectuer les différentes étapes nécessaires à l'entraînement. Il est notamment possible d'éxécuter 
+## Command Line Interface
+
+The installation makes available a command line interface with `statapp2025curvas`. To see the help and available commands, run:
 
 ```shell
 statapp2025curvas --help
 ```
 
-pour afficher l'aide de la commande.
+### Available Commands
 
-TODO
+#### About
+Display information about the project:
+```shell
+statapp2025curvas about
+```
+
+#### Prepare Dataset
+Download and prepare a dataset for analysis:
+```shell
+statapp2025curvas prepare <annotator> <patients>
+```
+Arguments:
+- `annotator`: Annotator number (1/2/3)
+- `patients`: List of patient numbers or "all" for all patients
+
+Options:
+- `--skip`: Skip download and only run preprocessing
+- `--num-processes-fingerprint`: Number of processes for fingerprint extraction
+- `--num-processes`: Number of processes for preprocessing
+- `--verbose`: Enable verbose logging
+
+#### Prepare Dataset (nnUNet)
+Prepare a dataset using nnUNet directly:
+```shell
+statapp2025curvas prepare-nnunet <base_directory> <dataset>
+```
+Arguments:
+- `base_directory`: Local directory path to the dataset
+- `dataset`: ID of the dataset to preprocess
+
+Options:
+- `--raw`: Local path of raw data relative to base
+- `--preprocessed`: Local path of preprocessed data relative to base
+
+#### Train
+Train a model on a given dataset:
+```shell
+statapp2025curvas train <base_directory>
+```
+Arguments:
+- `base_directory`: Local directory path to the dataset
+
+Options:
+- `--preprocessed`: Local path of preprocessed data relative to base
+- `--results`: Local path of results relative to base
+- `--dataset`: Specific dataset to train on (optional)
+
+#### Upload Data
+Upload a local directory to the S3 data folder:
+```shell
+statapp2025curvas upload-data <directory>
+```
+Arguments:
+- `directory`: Local directory path to upload
+
+Options:
+- `--verbose`: Enable verbose output
+
+#### Upload Artifacts
+Upload a local directory to the S3 artifacts folder:
+```shell
+statapp2025curvas upload-artifacts <directory>
+```
+Arguments:
+- `directory`: Local directory path to upload
+
+Options:
+- `--verbose`: Enable verbose output
+
+#### Empty Data
+Remove all files and folders from the S3 data folder:
+```shell
+statapp2025curvas empty-data
+```
+Options:
+- `--confirm`: Confirm deletion without prompting
+- `--verbose`: Enable verbose output
+
+## Project Structure
+
+The project is organized as follows:
+- `src/statapp/`: Contains the CLI implementation and utility functions
+- `src/nnunetv2/`: Contains the fork of nnU-Net v2
+- `src/accesskey/`: Contains access keys information for S3 integration
+
+## Data Organization
+
+The project follows the nnU-Net data organization:
+- `nnUNet_raw/`: Contains raw datasets
+- `nnUNet_preprocessed/`: Contains preprocessed data
+- `nnUNet_results/`: Contains training results
+
+## License
+
+This project is based on nnU-Net, which is licensed under the Apache License 2.0.
