@@ -9,6 +9,7 @@ import sys
 from typer import Typer
 
 from statapp.about import app as about
+from statapp.prepare_dataset_nnunet import app as prepare_nnunet
 from statapp.prepare_dataset import app as prepare
 from statapp.upload_data import app as upload_data
 from statapp.empty_data import app as empty_data
@@ -22,6 +23,7 @@ app = Typer(
 )
 
 app.add_typer(about)
+app.add_typer(prepare_nnunet)
 app.add_typer(prepare)
 app.add_typer(upload_data)
 app.add_typer(empty_data)

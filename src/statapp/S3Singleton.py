@@ -129,110 +129,32 @@ class S3Singleton:
 
         return deleted_objects
 
-    def _parse_remote_path(self, remote_path: str, local_path: str = None) -> Tuple[str, str]:
-        """
-        Parse a remote path into bucket and key components.
-
-        Args:
-            remote_path (str): Path in S3 (bucket/key format)
-            local_path (str, optional): Local path to use for the key if not specified in remote_path
-
-        Returns:
-            Tuple[str, str]: Bucket and key
-        """
-        parts = remote_path.split('/', 1)
-        bucket = parts[0]
-        key = parts[1] if len(parts) > 1 else (os.path.basename(local_path) if local_path else "")
-        return bucket, key
-
-    def _calculate_local_md5(self, file_path: str) -> str:
-        """
-        Calculate MD5 hash for a local file.
-
-        Args:
-            file_path (str): Path to the local file
-
-        Returns:
-            str: MD5 hash of the file content
-        """
-        md5_hash = hashlib.md5()
-        with open(file_path, "rb") as f:
-            # Read the file in chunks to handle large files efficiently
-            for chunk in iter(lambda: f.read(4096), b""):
-                md5_hash.update(chunk)
-        return md5_hash.hexdigest()
-
-    def has_changed(self, local_path: str, remote_path: str) -> bool:
-        """
-        Tests if a file has been changed based on content comparison.
-
-        Downloads the file from S3 and compares its MD5 hash with the local file.
-        This is more reliable than comparing the ETag, as S3 may calculate ETags
-        differently than a standard MD5 hash, especially for multipart uploads.
-
-        Args:
-            local_path (str): relative path of the local file
-            remote_path (str): path of the remote file
-
-        Returns:
-            bool: indicates if the file has changed (True if content is different)
-        """
-        import tempfile
-
-        # Parse the remote path to get bucket and key
-        bucket, key = self._parse_remote_path(remote_path, local_path)
-
-        try:
-            # Calculate MD5 hash of local file
-            local_md5 = self._calculate_local_md5(local_path)
-
-            # Create a temporary file to download the S3 object
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_path = temp_file.name
-
-            # Download the file from S3
-            self._s3_client.download_file(bucket, key, temp_path)
-
-            # Calculate MD5 hash of the downloaded file
-            remote_md5 = self._calculate_local_md5(temp_path)
-
-            # Clean up the temporary file
-            import os
-            os.unlink(temp_path)
-
-            # Compare hashes
-            return local_md5.lower() != remote_md5.lower()
-
-        except Exception as e:
-            # If there's an error (e.g., file doesn't exist on S3), consider it changed
-            import logging
-            logging.error(f"Error checking if file has changed: {str(e)}")
-            return True
-
-
     def upload_file(self, local_path: str, remote_path: str, callback: Callable[[int], None] = None) -> None:
         """
         Upload a file to S3 using boto3.
 
         Args:
             local_path (str): Path to the local file
-            remote_path (str): Path in S3 where the file will be stored
+            remote_path (str): Path in S3 where the file will be stored (bucket/key format)
             callback (callable, optional): Function to call with progress updates
                                           Should accept (bytes_transferred)
         """
-        if (not self.has_changed(local_path, remote_path)):
-            return
+        from statapp import s3_utils
+        s3_utils.upload_file(local_path, remote_path, callback)
 
-        bucket, key = self._parse_remote_path(remote_path, local_path)
+    def download_file(self, bucket: str, key: str, local_path: str, callback: Callable[[int], None] = None) -> None:
+        """
+        Download a file from S3 using boto3.
 
-        # Upload the file with progress tracking
-        self._s3_client.upload_file(
-            local_path, 
-            bucket, 
-            key,
-            Callback=callback,
-            Config=self._transfer_config
-        )
+        Args:
+            bucket (str): S3 bucket name
+            key (str): S3 object key
+            local_path (str): Path where the file will be stored locally
+            callback (callable, optional): Function to call with progress updates
+                                          Should accept (bytes_transferred)
+        """
+        from statapp import s3_utils
+        s3_utils.download_file(f"{bucket}/{key}", local_path, callback)
 
     def upload_directory(self, local_dir: str, remote_dir: str, 
                         callback: Callable[[int, str], None] = None) -> List[str]:
@@ -241,45 +163,29 @@ class S3Singleton:
 
         Args:
             local_dir (str): Path to the local directory
-            remote_dir (str): Path in S3 where the directory will be stored
+            remote_dir (str): Path in S3 where the directory will be stored (bucket/prefix format)
             callback (callable, optional): Function to call with progress updates
                                           Should accept (bytes_transferred, filename)
 
         Returns:
-            List[str]: List of uploaded files
+            List[str]: List of uploaded files (bucket/key format)
         """
-        uploaded_files = []
-        local_path = Path(local_dir)
+        from statapp import s3_utils
+        return s3_utils.upload_directory(local_dir, remote_dir, callback)
 
-        # Parse the remote path to get bucket and prefix
-        bucket, prefix = self._parse_remote_path(remote_dir)
+    def download_directory(self, remote_dir: str, local_dir: str,
+                          callback: Callable[[int, str], None] = None) -> List[str]:
+        """
+        Download a directory from S3.
 
-        # Walk through the directory and upload each file
-        for root, _, files in os.walk(local_dir):
-            for file in files:
-                local_file_path = os.path.join(root, file)
+        Args:
+            remote_dir (str): Path in S3 where the directory is stored (bucket/prefix format)
+            local_dir (str): Path where the directory will be stored locally
+            callback (callable, optional): Function to call with progress updates
+                                          Should accept (bytes_transferred, filename)
 
-                # Calculate the relative path from the base directory
-                rel_path = os.path.relpath(local_file_path, local_dir)
-
-                # Construct the S3 key with the prefix and relative path
-                s3_key = os.path.join(prefix, rel_path).replace('\\', '/')
-
-                # Create a callback wrapper that includes the filename if callback was provided
-                file_callback = None
-                if callback:
-                    def file_callback_fn(bytes_transferred):
-                        callback(bytes_transferred, file)
-                    file_callback = file_callback_fn
-
-                self._s3_client.upload_file(
-                    local_file_path, 
-                    bucket, 
-                    s3_key,
-                    Callback=file_callback,
-                    Config=self._transfer_config
-                )
-
-                uploaded_files.append(f"{bucket}/{s3_key}")
-
-        return uploaded_files
+        Returns:
+            List[str]: List of downloaded files (local paths)
+        """
+        from statapp import s3_utils
+        return s3_utils.download_directory(remote_dir, local_dir, callback)

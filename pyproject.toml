@@ -39,7 +39,8 @@ dependencies = [
     "typer>=0.15.2",
     "s3fs",
     "python-dotenv",
-    "humanize"
+    "humanize",
+    "boto3"
 ]
 
 [project.urls]

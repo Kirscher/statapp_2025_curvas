@@ -135,7 +135,7 @@ class ProgressTracker:
         self.progress.update(
             self.file_task,
             completed=0,
-            description=f"[bold yellow]Uploading: {display_path}",
+            description=f"[bold yellow]Downloading: {display_path}",
             size=file_size_human,
             elapsed="0s",
             visible=True
@@ -175,7 +175,7 @@ class ProgressTracker:
             self.progress.update(
                 self.file_task,
                 completed=percent_complete,
-                description=f"[bold yellow]Uploading: {display_path} ({percent_complete}%)",
+                description=f"[bold yellow]Downloading: {display_path} ({percent_complete}%)",
                 elapsed=elapsed_str
             )
 
@@ -210,7 +210,7 @@ class ProgressTracker:
             self.progress.update(
                 self.file_task,
                 completed=100,
-                description=f"[bold green]Uploaded: {display_path}",
+                description=f"[bold green]Downloaded: {display_path}",
                 elapsed=file_elapsed_str
             )
         else:
