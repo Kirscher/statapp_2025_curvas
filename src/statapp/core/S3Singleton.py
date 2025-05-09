@@ -139,7 +139,7 @@ class S3Singleton:
             callback (callable, optional): Function to call with progress updates
                                           Should accept (bytes_transferred)
         """
-        from statapp import s3_utils
+        from statapp.utils import s3_utils
         s3_utils.upload_file(local_path, remote_path, callback)
 
     def download_file(self, bucket: str, key: str, local_path: str, callback: Callable[[int], None] = None) -> None:
@@ -153,7 +153,7 @@ class S3Singleton:
             callback (callable, optional): Function to call with progress updates
                                           Should accept (bytes_transferred)
         """
-        from statapp import s3_utils
+        from statapp.utils import s3_utils
         s3_utils.download_file(f"{bucket}/{key}", local_path, callback)
 
     def upload_directory(self, local_dir: str, remote_dir: str, 
@@ -170,7 +170,7 @@ class S3Singleton:
         Returns:
             List[str]: List of uploaded files (bucket/key format)
         """
-        from statapp import s3_utils
+        from statapp.utils import s3_utils
         return s3_utils.upload_directory(local_dir, remote_dir, callback)
 
     def download_directory(self, remote_dir: str, local_dir: str,
@@ -187,5 +187,5 @@ class S3Singleton:
         Returns:
             List[str]: List of downloaded files (local paths)
         """
-        from statapp import s3_utils
+        from statapp.utils import s3_utils
         return s3_utils.download_directory(remote_dir, local_dir, callback)

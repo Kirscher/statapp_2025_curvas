@@ -12,9 +12,9 @@ from rich.text import Text
 import typer
 from typing import Optional, List, Dict, Any
 
-from statapp import s3_utils
-from statapp.progress_tracker import ProgressTracker, track_progress
-from statapp.utils import setup_nnunet_env, info, pretty_print, create_progress
+from statapp.utils import s3_utils
+from statapp.utils.progress_tracker import ProgressTracker, track_progress
+from statapp.utils.utils import setup_nnunet_env, info, pretty_print, create_progress
 from nnunetv2.dataset_conversion.generate_dataset_json import generate_dataset_json
 
 # Constants

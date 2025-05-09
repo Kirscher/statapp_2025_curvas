@@ -8,10 +8,10 @@ from pathlib import Path
 from rich.text import Text
 import typer
 from typing import Optional
-from statapp.utils import setup_nnunet_env
+from statapp.utils.utils import setup_nnunet_env
 import subprocess
 
-import statapp.utils as utils
+from statapp.utils import utils
 
 app = typer.Typer()
 
@@ -39,4 +39,3 @@ def prepare_nnunet(
         "2"
     ]
     subprocess.run(command)
-    

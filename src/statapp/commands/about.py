@@ -8,7 +8,7 @@ from rich.text import Text
 import typer
 from typing import Optional
 
-import statapp.utils as utils
+from statapp.utils import utils
 
 app = typer.Typer()
 

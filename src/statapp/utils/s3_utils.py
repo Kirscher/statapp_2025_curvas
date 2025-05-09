@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional, Tuple, Union
 
-from statapp.S3Singleton import S3Singleton
+from statapp.core.S3Singleton import S3Singleton
 
 
 def list_data_directory() -> List[Dict[str, Any]]:

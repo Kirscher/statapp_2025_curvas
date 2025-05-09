@@ -5,16 +5,16 @@ This module provides a class for tracking progress of file operations
 with dual progress bars (overall and per-file).
 """
 
-import time
 import threading
-import humanize
-from typing import List, Callable, Any, Optional
+import time
 from threading import Lock
-from rich.live import Live
-from rich.progress import Progress
-from rich.text import Text
+from typing import List, Callable, Any
 
-from statapp.utils import console, create_dual_progress
+import humanize
+from rich.live import Live
+
+from statapp.utils.misc import console, create_dual_progress
+
 
 class ProgressTracker:
     """

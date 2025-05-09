@@ -1,35 +1,36 @@
 """
-Upload data module for the statapp application.
+Upload utilities module for the statapp application.
 
-This module provides a command to upload local directories to S3 storage.
+This module provides shared functionality for uploading files to S3 storage.
 """
 
 import os
 import time
-import typer
-import humanize
-import logging
-from typing import Optional, List, Callable, Tuple
+from typing import Callable, List
 from pathlib import Path
+
+import typer
 from rich.text import Text
 
 import statapp.utils as utils
-from statapp.progress_tracker import ProgressTracker, track_progress
-from statapp.utils import console
-from statapp import s3_utils
+from statapp.utils.progress_tracker import ProgressTracker, track_progress
+from statapp.utils import s3_utils
 
-app = typer.Typer()
 
-@app.command()
-def upload_data(
-    directory: str = typer.Argument(..., help="Local directory path to upload"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output")
+def upload_directory_to_s3(
+    directory: str,
+    remote_dir_env_var: str,
+    verbose: bool = False,
+    command_description: str = "Upload files to S3"
 ) -> None:
     """
-    Upload a local directory to the S3 data folder.
+    Upload a local directory to an S3 folder.
 
-    This command uploads all files and subdirectories from the specified local directory
-    to the S3 data folder defined in the .env file.
+    Args:
+        directory (str): Local directory path to upload
+        remote_dir_env_var (str): Environment variable name for the remote directory
+        verbose (bool): Enable verbose output
+        command_description (str): Description of the command for logging
     """
     # Setup logging
     logger = utils.setup_logging(verbose)
@@ -46,7 +47,7 @@ def upload_data(
         return
 
     # Prepare remote path
-    remote_base_path = f"{os.environ['S3_BUCKET']}/{os.environ['S3_DATA_DIR']}"
+    remote_base_path = f"{os.environ['S3_BUCKET']}/{os.environ[remote_dir_env_var]}"
 
     # Display info
     info_text = Text.assemble(

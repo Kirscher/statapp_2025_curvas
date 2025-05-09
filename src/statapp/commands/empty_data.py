@@ -9,8 +9,8 @@ import typer
 import logging
 from rich.text import Text
 
-import statapp.utils as utils
-from statapp import s3_utils
+from statapp.utils import utils
+from statapp.utils import s3_utils
 
 app = typer.Typer()
 

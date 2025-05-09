@@ -155,4 +155,3 @@ def setup_nnunet_env(base: Path, raw: Path, preprocessed: Path, results: Path) -
         os.environ[var_name] = path
 
     return
-    
