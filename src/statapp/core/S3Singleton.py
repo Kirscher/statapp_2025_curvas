@@ -95,6 +95,25 @@ class S3Singleton:
             return response['Contents']
         return []
 
+    def list_artifacts_directory(self) -> List[Dict[str, Any]]:
+        """
+        List contents of the artifacts directory in the S3 bucket.
+
+        Returns:
+            List[Dict[str, Any]]: List of objects in the artifacts directory
+        """
+        bucket = os.environ['S3_BUCKET']
+        prefix = f"{os.environ['S3_ARTIFACTS_DIR']}/"
+
+        response = self._s3_client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=prefix
+        )
+
+        if 'Contents' in response:
+            return response['Contents']
+        return []
+
     def empty_data_directory(self) -> List[str]:
         """
         Delete all objects in the data directory of the S3 bucket.
@@ -107,6 +126,40 @@ class S3Singleton:
 
         # List all objects in the data directory
         objects = self.list_data_directory()
+
+        deleted_objects = []
+
+        if objects:
+            # Create a list of objects to delete
+            delete_keys = [{'Key': obj['Key']} for obj in objects]
+
+            # Delete the objects
+            response = self._s3_client.delete_objects(
+                Bucket=bucket,
+                Delete={
+                    'Objects': delete_keys,
+                    'Quiet': False
+                }
+            )
+
+            # Get the list of deleted objects
+            if 'Deleted' in response:
+                deleted_objects = [obj['Key'] for obj in response['Deleted']]
+
+        return deleted_objects
+
+    def empty_artifacts_directory(self) -> List[str]:
+        """
+        Delete all objects in the artifacts directory of the S3 bucket.
+
+        Returns:
+            List[str]: List of deleted object keys
+        """
+        bucket = os.environ['S3_BUCKET']
+        prefix = f"{os.environ['S3_ARTIFACTS_DIR']}/"
+
+        # List all objects in the artifacts directory
+        objects = self.list_artifacts_directory()
 
         deleted_objects = []
 

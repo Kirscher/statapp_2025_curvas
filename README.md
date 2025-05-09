@@ -29,15 +29,26 @@ To install and use the project:
    pip install -e .
    ```
 
-3. Set up environment variables (optional):
-   - Create a `.env` file in the project root with the following variables:
-     ```
-     S3_BUCKET=your-bucket-name
-     S3_DATA_DIR=data
-     S3_ARTIFACTS_DIR=artifacts
-     ```
-   - These variables are used for S3 storage integration if you're using that feature
+3. Set up environment variables. One way is to create a `.env` file in the project root with the following variables:
+   ```dotenv
+   #S3 Endpoint
+   S3_ENDPOINT="https://..."
 
+   #S3 Access key (see src/accesskey)
+   S3_ACCESS_KEY="statapp-segmedic"
+   #S3 Secret key (see src/accesskey)
+   S3_SECRET_KEY="..."
+
+   #S3 Bucket name, no trailing slash.
+   S3_BUCKET="projet-statapp-segmedic"
+   #Name of the data directory (in the S3 bucket)
+   #where CT scans and annotations will be stored.
+   S3_DATA_DIR="data"
+
+   #Name of the artifacts directory (in the S3 bucket)
+   #where the training outputs will be stored.
+   S3_ARTIFACTS_DIR="artifacts"
+   ```
 ## Command Line Interface
 
 The installation makes available a command line interface with `statapp2025curvas`. To see the help and available commands, run:
@@ -121,6 +132,15 @@ Options:
 Remove all files and folders from the S3 data folder:
 ```shell
 statapp2025curvas empty-data
+```
+Options:
+- `--confirm`: Confirm deletion without prompting
+- `--verbose`: Enable verbose output
+
+#### Empty Artifacts
+Remove all files and folders from the S3 artifacts folder:
+```shell
+statapp2025curvas empty-artifacts
 ```
 Options:
 - `--confirm`: Confirm deletion without prompting

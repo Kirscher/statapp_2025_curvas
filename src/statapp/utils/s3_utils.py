@@ -25,6 +25,17 @@ def list_data_directory() -> List[Dict[str, Any]]:
     return s3.list_data_directory()
 
 
+def list_artifacts_directory() -> List[Dict[str, Any]]:
+    """
+    List contents of the artifacts directory in the S3 bucket.
+
+    Returns:
+        List[Dict[str, Any]]: List of objects in the artifacts directory
+    """
+    s3 = S3Singleton()
+    return s3.list_artifacts_directory()
+
+
 def empty_data_directory() -> List[str]:
     """
     Delete all objects in the data directory of the S3 bucket.
@@ -34,6 +45,17 @@ def empty_data_directory() -> List[str]:
     """
     s3 = S3Singleton()
     return s3.empty_data_directory()
+
+
+def empty_artifacts_directory() -> List[str]:
+    """
+    Delete all objects in the artifacts directory of the S3 bucket.
+
+    Returns:
+        List[str]: List of deleted object keys
+    """
+    s3 = S3Singleton()
+    return s3.empty_artifacts_directory()
 
 
 def get_file_size(bucket: str, key: str) -> int:
@@ -71,7 +93,7 @@ def upload_file(local_path: str, remote_path: str, callback: Callable[[int], Non
     try:
         s3 = S3Singleton()
         bucket, key = parse_remote_path(remote_path, local_path)
-        
+
         # Upload the file with progress tracking
         s3.client.upload_file(
             local_path, 
@@ -103,13 +125,13 @@ def download_file(remote_path: str, local_path: str, callback: Callable[[int], N
     try:
         s3 = S3Singleton()
         bucket, key = parse_remote_path(remote_path)
-        
+
         # Ensure the destination directory exists
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        
+
         # Create a temporary file for downloading
         temp_path = tempfile.mktemp()
-        
+
         try:
             # Download the file with progress tracking
             s3.client.download_file(
@@ -119,14 +141,14 @@ def download_file(remote_path: str, local_path: str, callback: Callable[[int], N
                 Callback=callback,
                 Config=s3._transfer_config
             )
-            
+
             # Copy the file to the destination
             shutil.copy2(temp_path, local_path)
-            
+
             # Verify the file was copied
             if not os.path.exists(local_path):
                 raise FileNotFoundError(f"Failed to copy file to {local_path}")
-                
+
             return True
         finally:
             # Clean up the temporary file
@@ -154,28 +176,28 @@ def upload_directory(local_dir: str, remote_dir: str,
     """
     uploaded_files = []
     s3 = S3Singleton()
-    
+
     # Parse the remote path to get bucket and prefix
     bucket, prefix = parse_remote_path(remote_dir)
-    
+
     # Walk through the directory and upload each file
     for root, _, files in os.walk(local_dir):
         for file in files:
             local_file_path = os.path.join(root, file)
-            
+
             # Calculate the relative path from the base directory
             rel_path = os.path.relpath(local_file_path, local_dir)
-            
+
             # Construct the S3 key with the prefix and relative path
             s3_key = os.path.join(prefix, rel_path).replace('\\', '/')
-            
+
             # Create a callback wrapper that includes the filename if callback was provided
             file_callback = None
             if callback:
                 def file_callback_fn(bytes_transferred):
                     callback(bytes_transferred, file)
                 file_callback = file_callback_fn
-            
+
             # Upload the file
             try:
                 s3.client.upload_file(
@@ -185,12 +207,12 @@ def upload_directory(local_dir: str, remote_dir: str,
                     Callback=file_callback,
                     Config=s3._transfer_config
                 )
-                
+
                 uploaded_files.append(f"{bucket}/{s3_key}")
             except Exception as e:
                 import logging
                 logging.error(f"Error uploading file {local_file_path} to {bucket}/{s3_key}: {str(e)}")
-    
+
     return uploaded_files
 
 
@@ -210,35 +232,35 @@ def download_directory(remote_dir: str, local_dir: str,
     """
     downloaded_files = []
     s3 = S3Singleton()
-    
+
     # Parse the remote path to get bucket and prefix
     bucket, prefix = parse_remote_path(remote_dir)
-    
+
     # Ensure the local directory exists
     os.makedirs(local_dir, exist_ok=True)
-    
+
     # List objects in the S3 directory
     paginator = s3.client.get_paginator('list_objects_v2')
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         if 'Contents' not in page:
             continue
-            
+
         for obj in page['Contents']:
             key = obj['Key']
-            
+
             # Skip if this is a directory marker
             if key.endswith('/'):
                 continue
-                
+
             # Calculate the relative path from the prefix
             rel_path = key[len(prefix):].lstrip('/')
-            
+
             # Construct the local file path
             local_file_path = os.path.join(local_dir, rel_path)
-            
+
             # Ensure the local directory exists
             os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-            
+
             # Create a callback wrapper that includes the filename if callback was provided
             file_callback = None
             if callback:
@@ -246,12 +268,12 @@ def download_directory(remote_dir: str, local_dir: str,
                 def file_callback_fn(bytes_transferred):
                     callback(bytes_transferred, filename)
                 file_callback = file_callback_fn
-            
+
             # Download the file
             try:
                 # Create a temporary file for downloading
                 temp_path = tempfile.mktemp()
-                
+
                 try:
                     # Download the file with progress tracking
                     s3.client.download_file(
@@ -261,14 +283,14 @@ def download_directory(remote_dir: str, local_dir: str,
                         Callback=file_callback,
                         Config=s3._transfer_config
                     )
-                    
+
                     # Copy the file to the destination
                     shutil.copy2(temp_path, local_file_path)
-                    
+
                     # Verify the file was copied
                     if not os.path.exists(local_file_path):
                         raise FileNotFoundError(f"Failed to copy file to {local_file_path}")
-                        
+
                     downloaded_files.append(local_file_path)
                 finally:
                     # Clean up the temporary file
@@ -277,7 +299,7 @@ def download_directory(remote_dir: str, local_dir: str,
             except Exception as e:
                 import logging
                 logging.error(f"Error downloading file from {bucket}/{key} to {local_file_path}: {str(e)}")
-    
+
     return downloaded_files
 
 

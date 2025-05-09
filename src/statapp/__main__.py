@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from typer import Typer
 
 from statapp.commands.about import app as about
+from statapp.commands.empty_artifacts import app as empty_artifacts
 from statapp.commands.empty_data import app as empty_data
 from statapp.commands.prepare_dataset import app as prepare
 from statapp.commands.prepare_dataset_nnunet import app as prepare_nnunet
@@ -26,6 +27,7 @@ app.add_typer(prepare)
 app.add_typer(upload_data)
 app.add_typer(upload_artifacts)
 app.add_typer(empty_data)
+app.add_typer(empty_artifacts)
 app.add_typer(train)
 
 def main() -> None:
