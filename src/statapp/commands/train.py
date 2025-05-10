@@ -1,51 +1,36 @@
 """
-Dataset training for the statapp application.
+Dataset preparation module for the statapp application.
 
-This module provides commands for training the model.
+This module provides commands for preparing datasets for analysis.
 """
 
-from pathlib import Path
-from rich.text import Text
 import typer
-from typing import Optional
-from statapp.utils.utils import setup_nnunet_env
-import subprocess
-import os
 
-from statapp.utils import utils
+from nnunetv2.run.run_training import run_training_with_args
+from statapp.utils.utils import setup_logging
 
 app = typer.Typer()
 
 @app.command()
 def train(
-    base_directory: str = typer.Argument(..., help="Local directory path to the dataset"),
-    preprocessed_directory: str = typer.Option("nnUNet_preprocessed", "--preprocessed", "-p", help="Local path of preprocessed data relative to base"),
-    result_directory: str = typer.Option("nnUNet_results", "--results", "-r", help="Local path of results relative to base"),
-    dataset: str = typer.Option("", "--dataset", "-d", help="Dataset on wich to train")
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
     """
-    Train a model on a given dataset
+    Run nnUNet training. Must be prepared with the prepare command beforehand.
+
+    Use --verbose to enable verbose logging output.
     """
-    # We don't care about output directory as we are not using it here 
-    setup_nnunet_env(Path(base_directory), Path(f""), Path(preprocessed_directory), Path(result_directory))
+    # Set up logger
+    logger = setup_logging(verbose)
 
-    if dataset == "":
-        datasets = os.listdir(Path(base_directory)/Path(preprocessed_directory))
-    else:
-        datasets = [dataset]
-    
-    for dataset in datasets:
-        # ignore hidden files
-        if dataset.startswith('.'):
-            continue
+    # Run training
+    logger.info("Running nnUNet for dataset 475...")
+    run_training_with_args(
+        dataset_name_or_id="475",
+        configuration="3d_fullres",
+        fold="all",
+        export_validation_probabilities=True,
+        logger=logger
+    )
 
-
-        command = [
-            "nnUNetv2_train",
-            f"{dataset}",  # Dataset ID
-            "3d_fullres",  # Plan
-            "all",  # Fold
-            "--npz",
-            "--c"
-        ]
-        subprocess.run(command)
+    logger.info("nnUNet training complete!")
