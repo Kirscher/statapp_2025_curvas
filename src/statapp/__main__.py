@@ -14,7 +14,7 @@ from statapp.commands.empty_artifacts import app as empty_artifacts
 from statapp.commands.empty_data import app as empty_data
 from statapp.commands.prepare import app as prepare
 from statapp.commands.train import app as train
-from statapp.commands.all import app as all
+from statapp.commands.run import app as run
 from statapp.commands.deprecated.prepare_nnunet import app as deprecated_prepare_nnunet
 from statapp.commands.deprecated.train_nnunet import app as deprecated_train_nnunet
 
@@ -31,7 +31,7 @@ app.add_typer(empty_data)
 app.add_typer(empty_artifacts)
 app.add_typer(prepare)
 app.add_typer(train)
-app.add_typer(all)
+app.add_typer(run)
 app.add_typer(deprecated_prepare_nnunet)
 app.add_typer(deprecated_train_nnunet)
 

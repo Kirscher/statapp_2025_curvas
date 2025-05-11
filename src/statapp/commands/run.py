@@ -17,7 +17,7 @@ from rich.text import Text
 app = typer.Typer()
 
 @app.command()
-def all(
+def run(
     annotator: str = typer.Argument(..., help="Annotator (1/2/3)"),
     seed: int = typer.Argument(..., help="Set random seed for reproducibility"),
     patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 001 034) or all for all"),
@@ -68,7 +68,7 @@ def all(
     directory = f"nnUnet_results/Dataset475_CURVAS_ANNO{annotator}"
     
     # Construct the subfolder name based on the requirements
-    subfolder = f"anno{annotator}_init{seed}_fold{fold}"
+    subfolder = f"models/anno{annotator}_init{seed}_fold{fold}"
     
     # Upload the artifacts
     upload_directory_to_s3(

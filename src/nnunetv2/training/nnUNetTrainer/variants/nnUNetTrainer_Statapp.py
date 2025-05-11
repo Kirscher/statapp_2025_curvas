@@ -210,13 +210,12 @@ class nnUNetTrainer_Statapp(nnUNetTrainer):
             ))
 
         self.on_train_start()
-        epoch = self.current_epoch
 
-        while epoch < self.num_epochs and self.epochs_without_improvement < self.early_stopping_patience:
+        while self.current_epoch < self.num_epochs and self.epochs_without_improvement < self.early_stopping_patience:
             self.print_to_log_file(Text.assemble(
                 ("⏳ ", ""),
                 ("Starting epoch ", "bold blue"),
-                (f"{epoch}", "bold cyan"),
+                (f"{self.current_epoch}", "bold cyan"),
                 ("/", ""),
                 (f"{self.num_epochs}", "bold cyan")
             ))
@@ -252,7 +251,7 @@ class nnUNetTrainer_Statapp(nnUNetTrainer):
                 self.print_to_log_file(Text.assemble(
                     ("🛑 ", ""),
                     ("Early stopping triggered at epoch ", "bold red"),
-                    (f"{epoch}", "bold cyan"),
+                    (f"{self.current_epoch}", "bold cyan"),
                     ("!", "bold red")
                 ))
                 self.print_to_log_file(Text.assemble(
@@ -265,7 +264,7 @@ class nnUNetTrainer_Statapp(nnUNetTrainer):
         self.print_to_log_file(Text.assemble(
             ("✅ ", ""),
             ("Training completed after ", "bold green"),
-            (f"{epoch}", "bold cyan"),
+            (f"{self.current_epoch}", "bold cyan"),
             (" epochs", "bold green")
         ))
         self.on_train_end()
