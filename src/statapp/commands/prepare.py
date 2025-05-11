@@ -84,19 +84,19 @@ def prepare(
     selected_patients = []
     if len(patients) == 1 and patients[0] == "all":
         selected_patients = list(available_patients.keys())
-        pretty_print(f"[bold green]Selected all {len(selected_patients)} patients[/bold green]")
+        info(Text(f"Selected all {len(selected_patients)} patients", style="bold green"))
     else:
         for patient in patients:
             if patient in available_patients:
                 selected_patients.append(patient)
             else:
-                pretty_print(f"[bold yellow]Warning:[/bold yellow] Patient UKCHLL{patient} not found in S3 data")
+                info(Text.assemble(("Warning: ", "bold yellow"), (f"Patient UKCHLL{patient} not found in S3 data", "")))
 
     if not selected_patients:
-        pretty_print("[bold red]Error:[/bold red] No valid patients selected")
+        info(Text.assemble(("Error: ", "bold red"), ("No valid patients selected", "")))
         return
 
-    pretty_print(f"[bold green]Processing {len(selected_patients)} patients with annotator {annotator}[/bold green]")
+    info(Text(f"Processing {len(selected_patients)} patients with annotator {annotator}", style="bold green"))
 
     # Create necessary directories
     nnunet_raw_dir = Path("nnUNet_raw")
@@ -109,7 +109,7 @@ def prepare(
     os.makedirs(images_dir, exist_ok=True)
     os.makedirs(labels_dir, exist_ok=True)
     if skip:
-        pretty_print("[bold yellow]Skipping download as requested with --skip option[/bold yellow]")
+        info(Text("Skipping download as requested with --skip option", style="bold yellow"))
     else:
         # Prepare file list for downloading
         files_to_download = []
@@ -144,12 +144,12 @@ def prepare(
                 })
             else:
                 if not image_exists:
-                    pretty_print(f"[bold yellow]Warning:[/bold yellow] Image file for UKCHLL{patient} not found")
+                    info(Text.assemble(("Warning: ", "bold yellow"), (f"Image file for UKCHLL{patient} not found", "")))
                 if not annotation_exists:
-                    pretty_print(f"[bold yellow]Warning:[/bold yellow] Annotation {annotator} for UKCHLL{patient} not found")
+                    info(Text.assemble(("Warning: ", "bold yellow"), (f"Annotation {annotator} for UKCHLL{patient} not found", "")))
 
         if not files_to_download:
-            pretty_print("[bold red]Error:[/bold red] No valid files to download")
+            info(Text.assemble(("Error: ", "bold red"), ("No valid files to download", "")))
             return
 
         # Function to get file size (now uses actual S3 file size)
@@ -208,13 +208,13 @@ def prepare(
                     start_time,
                     success=False
                 )
-                pretty_print(f"[bold red]Error processing {display_name}: {str(e)}[/bold red]")
+                info(Text(f"Error processing {display_name}: {str(e)}", style="bold red"))
 
         # Track progress and process files
         track_progress(files_to_download, get_file_size, process_file)
 
         # Generate dataset.json file
-        pretty_print(f"[bold]Generating dataset.json file...[/bold]")
+        info(Text("Generating dataset.json file...", style="bold"))
 
         # Count the number of unique patients (each patient has both image and annotation)
         num_patients = len(set(file_info['patient'] for file_info in files_to_download))
@@ -228,11 +228,11 @@ def prepare(
             file_ending=FILE_ENDING
         )
 
-        pretty_print(f"[bold green]Dataset preparation complete![/bold green]")
-        pretty_print(f"[bold]Dataset directory: {dataset_dir}[/bold]")
-        pretty_print(f"[bold]Images directory: {images_dir}[/bold]")
-        pretty_print(f"[bold]Labels directory: {labels_dir}[/bold]")
-        pretty_print(f"[bold]Dataset JSON file: {dataset_dir / 'dataset.json'}[/bold]")
+        info(Text("Dataset preparation complete!", style="bold green"))
+        info(Text(f"Dataset directory: {dataset_dir}", style="bold"))
+        info(Text(f"Images directory: {images_dir}", style="bold"))
+        info(Text(f"Labels directory: {labels_dir}", style="bold"))
+        info(Text(f"Dataset JSON file: {dataset_dir / 'dataset.json'}", style="bold"))
 
     # Run plan_and_preprocess
     logger.info("Running nnUNet planning and preprocessing for dataset 475...")

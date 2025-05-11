@@ -27,10 +27,11 @@ class S3Singleton:
     _s3_resource = None
     # Default transfer configuration for all uploads
     _transfer_config = TransferConfig(
-        multipart_threshold=1024 * 25,  # 25KB - use multipart upload for anything larger than this
-        max_concurrency=10,             # Number of threads for concurrent uploads
-        multipart_chunksize=1024 * 25,  # 25KB per part - smaller parts means more frequent callbacks
-        use_threads=True                # Use threads for faster uploads
+        multipart_threshold=8 * 1024 * 1024,  # 8MB - use multipart upload for anything larger than this
+        max_concurrency=20,                   # Number of threads for concurrent uploads
+        multipart_chunksize=8 * 1024 * 1024,  # 8MB per part - larger parts for better performance
+        use_threads=True,                     # Use threads for faster uploads
+        max_io_queue=100                      # Control memory usage
     )
 
     def __new__(cls) -> 'S3Singleton':
@@ -48,7 +49,10 @@ class S3Singleton:
                 'endpoint_url': os.environ["S3_ENDPOINT"],
                 'aws_access_key_id': os.environ["S3_ACCESS_KEY"],
                 'aws_secret_access_key': os.environ["S3_SECRET_KEY"],
-                'config': Config(signature_version='s3v4')
+                'config': Config(
+                    signature_version='s3v4',
+                    max_pool_connections=50  # Default is 10, increasing for better performance
+                )
             }
 
             # Configure boto3 client and resource with the same parameters

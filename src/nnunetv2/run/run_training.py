@@ -1,20 +1,20 @@
-import multiprocessing
 import os
 import socket
-import logging
 from typing import Union, Optional
 
-import nnunetv2
+import torch.cuda
 import torch.cuda
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
+from torch.backends import cudnn
+
+import nnunetv2
 from nnunetv2.paths import nnUNet_preprocessed
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
-from torch.backends import cudnn
 
 
 def find_free_network_port() -> int:
@@ -35,7 +35,6 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
                           fold: int,
                           trainer_name: str = 'nnUNetTrainer',
                           plans_identifier: str = 'nnUNetPlans',
-                          use_compressed: bool = False,
                           device: torch.device = torch.device('cuda')):
     # load nnunet class and do sanity checks
     nnunet_trainer = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
@@ -65,7 +64,7 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     plans = load_json(plans_file)
     dataset_json = load_json(join(preprocessed_dataset_folder_base, 'dataset.json'))
     nnunet_trainer = nnunet_trainer(plans=plans, configuration=configuration, fold=fold,
-                                    dataset_json=dataset_json, unpack_dataset=not use_compressed, device=device)
+                                    dataset_json=dataset_json, device=device)
     return nnunet_trainer
 
 
@@ -109,13 +108,12 @@ def cleanup_ddp():
     dist.destroy_process_group()
 
 
-def run_ddp(rank, dataset_name_or_id, configuration, fold, tr, p, use_compressed, disable_checkpointing, c, val,
+def run_ddp(rank, dataset_name_or_id, configuration, fold, tr, p, disable_checkpointing, c, val,
             pretrained_weights, npz, val_with_best, world_size):
     setup_ddp(rank, world_size)
     torch.cuda.set_device(torch.device('cuda', dist.get_rank()))
 
-    nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, tr, p,
-                                           use_compressed)
+    nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, tr, p)
 
     if disable_checkpointing:
         nnunet_trainer.disable_checkpointing = disable_checkpointing
@@ -143,7 +141,6 @@ def run_training(dataset_name_or_id: Union[str, int],
                  plans_identifier: str = 'nnUNetPlans',
                  pretrained_weights: Optional[str] = None,
                  num_gpus: int = 1,
-                 use_compressed_data: bool = False,
                  export_validation_probabilities: bool = False,
                  continue_training: bool = False,
                  only_run_validation: bool = False,
@@ -183,7 +180,6 @@ def run_training(dataset_name_or_id: Union[str, int],
                      fold,
                      trainer_class_name,
                      plans_identifier,
-                     use_compressed_data,
                      disable_checkpointing,
                      continue_training,
                      only_run_validation,
@@ -195,7 +191,7 @@ def run_training(dataset_name_or_id: Union[str, int],
                  join=True)
     else:
         nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, trainer_class_name,
-                                               plans_identifier, use_compressed_data, device=device)
+                                               plans_identifier, device=device)
 
         if disable_checkpointing:
             nnunet_trainer.disable_checkpointing = disable_checkpointing
@@ -214,78 +210,6 @@ def run_training(dataset_name_or_id: Union[str, int],
         if val_with_best:
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
         nnunet_trainer.perform_actual_validation(export_validation_probabilities)
-
-
-def run_training_with_args(
-    dataset_name_or_id: Union[str, int],
-    configuration: str,
-    fold: Union[int, str],
-    trainer_name: str = 'nnUNetTrainer',
-    plans_identifier: str = 'nnUNetPlans',
-    pretrained_weights: Optional[str] = None,
-    num_gpus: int = 1,
-    use_compressed: bool = False,
-    export_validation_probabilities: bool = False,
-    continue_training: bool = False,
-    only_run_validation: bool = False,
-    disable_checkpointing: bool = False,
-    val_with_best: bool = False,
-    device_type: str = 'cuda',
-    logger: Optional[logging.Logger] = None
-) -> None:
-    """
-    Function that runs nnUNet training with direct arguments instead of parsing command line arguments.
-
-    Args:
-        dataset_name_or_id: Dataset name or ID to train with
-        configuration: Configuration that should be trained
-        fold: Fold of the 5-fold cross-validation (int between 0 and 4 or 'all')
-        trainer_name: Name of the trainer class to use
-        plans_identifier: Name of the plans file
-        pretrained_weights: Path to pretrained weights file
-        num_gpus: Number of GPUs to use for training
-        use_compressed: Whether to use compressed data
-        export_validation_probabilities: Whether to export validation probabilities
-        continue_training: Whether to continue training from latest checkpoint
-        only_run_validation: Whether to only run validation
-        disable_checkpointing: Whether to disable checkpointing
-        val_with_best: Whether to validate with best checkpoint
-        device_type: Device type to use ('cuda', 'cpu', or 'mps')
-        logger: Logger instance to use for logging
-    """
-    # Use logger if provided
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
-
-    if logger:
-        log = logger.info
-    else:
-        log = print
-
-    assert device_type in ['cpu', 'cuda', 'mps'], f'device_type must be either cpu, mps or cuda. Other devices are not tested/supported. Got: {device_type}.'
-
-    if device_type == 'cpu':
-        # let's allow torch to use hella threads
-        import multiprocessing
-        torch.set_num_threads(multiprocessing.cpu_count())
-        device = torch.device('cpu')
-    elif device_type == 'cuda':
-        # multithreading in torch doesn't help nnU-Net if run on GPU
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-        device = torch.device('cuda')
-    else:
-        device = torch.device('mps')
-
-    log(f"Starting training for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
-
-    run_training(dataset_name_or_id, configuration, fold, trainer_name, plans_identifier, pretrained_weights,
-                 num_gpus, use_compressed, export_validation_probabilities, continue_training, 
-                 only_run_validation, disable_checkpointing, val_with_best, device=device)
-
-    log(f"Training completed for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
-
 
 def run_training_entry():
     import argparse

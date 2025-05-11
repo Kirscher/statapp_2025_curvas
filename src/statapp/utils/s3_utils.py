@@ -109,6 +109,25 @@ def upload_file(local_path: str, remote_path: str, callback: Callable[[int], Non
         return False
 
 
+def get_file_md5(file_path: str) -> str:
+    """
+    Calculate MD5 hash of a file.
+
+    Args:
+        file_path (str): Path to the file
+
+    Returns:
+        str: MD5 hash of the file
+    """
+    import hashlib
+
+    md5_hash = hashlib.md5()
+    with open(file_path, "rb") as f:
+        # Read in chunks to handle large files
+        for chunk in iter(lambda: f.read(4096), b""):
+            md5_hash.update(chunk)
+    return md5_hash.hexdigest()
+
 def download_file(remote_path: str, local_path: str, callback: Callable[[int], None] = None) -> bool:
     """
     Download a file from S3.
@@ -129,31 +148,40 @@ def download_file(remote_path: str, local_path: str, callback: Callable[[int], N
         # Ensure the destination directory exists
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-        # Create a temporary file for downloading
-        temp_path = tempfile.mktemp()
+        # Check if file exists locally and compare with S3 ETag
+        if os.path.exists(local_path):
+            try:
+                # Get S3 object metadata
+                response = s3.client.head_object(Bucket=bucket, Key=key)
+                etag = response.get('ETag', '').strip('"')
 
-        try:
-            # Download the file with progress tracking
-            s3.client.download_file(
-                bucket, 
-                key, 
-                temp_path,
-                Callback=callback,
-                Config=s3._transfer_config
-            )
+                # Calculate MD5 of local file
+                local_md5 = get_file_md5(local_path)
 
-            # Copy the file to the destination
-            shutil.copy2(temp_path, local_path)
+                # If ETags match, file is unchanged - skip download
+                if etag and local_md5 == etag:
+                    import logging
+                    logging.info(f"File {local_path} is unchanged, skipping download")
+                    return True
+            except Exception as e:
+                # If there's an error checking ETag, proceed with download
+                import logging
+                logging.warning(f"Error checking ETag for {remote_path}: {str(e)}")
 
-            # Verify the file was copied
-            if not os.path.exists(local_path):
-                raise FileNotFoundError(f"Failed to copy file to {local_path}")
+        # Download directly to the destination file
+        s3.client.download_file(
+            bucket, 
+            key, 
+            local_path,
+            Callback=callback,
+            Config=s3._transfer_config
+        )
 
-            return True
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+        # Verify the file was downloaded
+        if not os.path.exists(local_path):
+            raise FileNotFoundError(f"Failed to download file to {local_path}")
+
+        return True
     except Exception as e:
         import logging
         logging.error(f"Error downloading file from {remote_path} to {local_path}: {str(e)}")
@@ -174,23 +202,46 @@ def upload_directory(local_dir: str, remote_dir: str,
     Returns:
         List[str]: List of uploaded files (bucket/key format)
     """
+    import concurrent.futures
+    import logging
+
     uploaded_files = []
     s3 = S3Singleton()
 
     # Parse the remote path to get bucket and prefix
     bucket, prefix = parse_remote_path(remote_dir)
 
-    # Walk through the directory and upload each file
+    # Function to upload a single file
+    def upload_file_task(local_file_path, bucket, s3_key, file_callback=None):
+        try:
+            s3.client.upload_file(
+                local_file_path, 
+                bucket, 
+                s3_key,
+                Callback=file_callback,
+                Config=s3._transfer_config
+            )
+            return f"{bucket}/{s3_key}"
+        except Exception as e:
+            logging.error(f"Error uploading file {local_file_path} to {bucket}/{s3_key}: {str(e)}")
+            return None
+
+    # Collect all files to upload
+    files_to_upload = []
     for root, _, files in os.walk(local_dir):
         for file in files:
             local_file_path = os.path.join(root, file)
-
             # Calculate the relative path from the base directory
             rel_path = os.path.relpath(local_file_path, local_dir)
-
             # Construct the S3 key with the prefix and relative path
             s3_key = os.path.join(prefix, rel_path).replace('\\', '/')
+            files_to_upload.append((local_file_path, file, s3_key))
 
+    # Process files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        future_to_file = {}
+
+        for local_file_path, file, s3_key in files_to_upload:
             # Create a callback wrapper that includes the filename if callback was provided
             file_callback = None
             if callback:
@@ -198,20 +249,21 @@ def upload_directory(local_dir: str, remote_dir: str,
                     callback(bytes_transferred, file)
                 file_callback = file_callback_fn
 
-            # Upload the file
-            try:
-                s3.client.upload_file(
-                    local_file_path, 
-                    bucket, 
-                    s3_key,
-                    Callback=file_callback,
-                    Config=s3._transfer_config
-                )
+            # Submit upload task to the executor
+            future = executor.submit(
+                upload_file_task,
+                local_file_path,
+                bucket,
+                s3_key,
+                file_callback
+            )
+            future_to_file[future] = local_file_path
 
-                uploaded_files.append(f"{bucket}/{s3_key}")
-            except Exception as e:
-                import logging
-                logging.error(f"Error uploading file {local_file_path} to {bucket}/{s3_key}: {str(e)}")
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_file):
+            result = future.result()
+            if result:
+                uploaded_files.append(result)
 
     return uploaded_files
 
@@ -230,6 +282,9 @@ def download_directory(remote_dir: str, local_dir: str,
     Returns:
         List[str]: List of downloaded files (local paths)
     """
+    import concurrent.futures
+    import logging
+
     downloaded_files = []
     s3 = S3Singleton()
 
@@ -239,13 +294,60 @@ def download_directory(remote_dir: str, local_dir: str,
     # Ensure the local directory exists
     os.makedirs(local_dir, exist_ok=True)
 
-    # List objects in the S3 directory
+    # Function to download a single file
+    def download_file_task(bucket, key, local_file_path, file_callback=None):
+        try:
+            # Ensure the local directory exists
+            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+
+            # Check if file exists locally and compare with S3 ETag
+            if os.path.exists(local_file_path):
+                try:
+                    # Get S3 object metadata
+                    response = s3.client.head_object(Bucket=bucket, Key=key)
+                    etag = response.get('ETag', '').strip('"')
+
+                    # Calculate MD5 of local file
+                    local_md5 = get_file_md5(local_file_path)
+
+                    # If ETags match, file is unchanged - skip download
+                    if etag and local_md5 == etag:
+                        logging.info(f"File {local_file_path} is unchanged, skipping download")
+                        return local_file_path
+                except Exception as e:
+                    # If there's an error checking ETag, proceed with download
+                    logging.warning(f"Error checking ETag for {bucket}/{key}: {str(e)}")
+
+            # Download the file with progress tracking directly to destination
+            s3.client.download_file(
+                bucket, 
+                key, 
+                local_file_path,
+                Callback=file_callback,
+                Config=s3._transfer_config
+            )
+
+            # Verify the file was downloaded
+            if not os.path.exists(local_file_path):
+                raise FileNotFoundError(f"Failed to download file to {local_file_path}")
+
+            return local_file_path
+        except Exception as e:
+            logging.error(f"Error downloading file from {bucket}/{key} to {local_file_path}: {str(e)}")
+            return None
+
+    # Collect all objects to download
+    objects = []
     paginator = s3.client.get_paginator('list_objects_v2')
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        if 'Contents' not in page:
-            continue
+        if 'Contents' in page:
+            objects.extend(page['Contents'])
 
-        for obj in page['Contents']:
+    # Process files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        future_to_file = {}
+
+        for obj in objects:
             key = obj['Key']
 
             # Skip if this is a directory marker
@@ -258,9 +360,6 @@ def download_directory(remote_dir: str, local_dir: str,
             # Construct the local file path
             local_file_path = os.path.join(local_dir, rel_path)
 
-            # Ensure the local directory exists
-            os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-
             # Create a callback wrapper that includes the filename if callback was provided
             file_callback = None
             if callback:
@@ -269,36 +368,21 @@ def download_directory(remote_dir: str, local_dir: str,
                     callback(bytes_transferred, filename)
                 file_callback = file_callback_fn
 
-            # Download the file
-            try:
-                # Create a temporary file for downloading
-                temp_path = tempfile.mktemp()
+            # Submit download task to the executor
+            future = executor.submit(
+                download_file_task, 
+                bucket, 
+                key, 
+                local_file_path, 
+                file_callback
+            )
+            future_to_file[future] = key
 
-                try:
-                    # Download the file with progress tracking
-                    s3.client.download_file(
-                        bucket, 
-                        key, 
-                        temp_path,
-                        Callback=file_callback,
-                        Config=s3._transfer_config
-                    )
-
-                    # Copy the file to the destination
-                    shutil.copy2(temp_path, local_file_path)
-
-                    # Verify the file was copied
-                    if not os.path.exists(local_file_path):
-                        raise FileNotFoundError(f"Failed to copy file to {local_file_path}")
-
-                    downloaded_files.append(local_file_path)
-                finally:
-                    # Clean up the temporary file
-                    if os.path.exists(temp_path):
-                        os.unlink(temp_path)
-            except Exception as e:
-                import logging
-                logging.error(f"Error downloading file from {bucket}/{key} to {local_file_path}: {str(e)}")
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_file):
+            result = future.result()
+            if result:
+                downloaded_files.append(result)
 
     return downloaded_files
 
