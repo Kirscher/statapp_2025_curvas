@@ -7,11 +7,12 @@ This module provides commands for preparing datasets for analysis.
 import os
 import typer
 from typing import Optional, List
+from pathlib import Path
 
 from nnunetv2.run.run_training import run_training_with_args
 from statapp.utils.utils import setup_logging, info
 from rich.text import Text
-from statapp.commands.prepare import get_dataset_code, DATASET_PREFIX
+from statapp.commands.prepare import get_dataset_code, DATASET_PREFIX, download_preprocessing
 
 app = typer.Typer()
 
@@ -94,6 +95,34 @@ def train(
         ("Using dataset: ", "bold green"),
         (f"{dataset_id}", "bold cyan")
     ))
+
+    # Check if preprocessing artifacts exist locally
+    preprocessing_path = Path(f"nnUNet_preprocessed/{dataset_id}")
+    plans_file = preprocessing_path / "nnUNetPlans.json"
+
+    if not plans_file.exists():
+        logger.info(f"Preprocessing artifacts not found locally at {preprocessing_path}")
+        logger.info("Attempting to download preprocessing artifacts from S3...")
+
+        # Try to download preprocessing artifacts from S3
+        preprocessing_exists = download_preprocessing(
+            annotator=annotator,
+            dataset_code=dataset_code,
+            verbose=verbose
+        )
+
+        if not preprocessing_exists:
+            logger.error(Text("Preprocessing artifacts not found in S3. Please run the prepare command first.", style="bold red"))
+            return
+
+        # Verify that the download was successful
+        if not plans_file.exists():
+            logger.error(Text("Failed to download preprocessing artifacts. Please run the prepare command first.", style="bold red"))
+            return
+
+        logger.info(Text("Successfully downloaded preprocessing artifacts from S3", style="bold green"))
+    else:
+        logger.info(Text(f"Using existing preprocessing artifacts at {preprocessing_path}", style="bold green"))
 
     run_training_with_args(
         dataset_name_or_id=dataset_id,
