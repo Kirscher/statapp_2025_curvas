@@ -424,7 +424,7 @@ def download_preprocessing(
     remote_path = f"{os.environ['S3_BUCKET']}/{os.environ['S3_ARTIFACTS_DIR']}/{preprocessing_path}"
 
     # Construct the local path
-    local_path = f"nnUNet_preprocessed/{DATASET_PREFIX}{annotator}"
+    local_path = f"nnUNet_preprocessed/{DATASET_PREFIX}{annotator}_{dataset_code}"
 
     # Ensure the local directory exists
     os.makedirs(local_path, exist_ok=True)
@@ -615,7 +615,7 @@ def prepare(
 
         # Upload the preprocessing artifacts
         upload_preprocessing_artifacts(
-            directory=f"nnUNet_preprocessed/{DATASET_PREFIX}{annotator}",
+            directory=f"nnUNet_preprocessed/{DATASET_PREFIX}{annotator}_{dataset_code}",
             preprocessingfolder=preprocessing_folder,
             verbose=verbose
         )
