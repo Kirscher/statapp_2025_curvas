@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 from typer import Typer
 
 from statapp.commands.about import app as about
-from statapp.commands.upload_artifacts import app as upload_artifacts
-from statapp.commands.upload_data import app as upload_data
+from statapp.commands.upload import app as upload_artifacts
 from statapp.commands.empty_artifacts import app as empty_artifacts
 from statapp.commands.empty_data import app as empty_data
 from statapp.commands.prepare import app as prepare
@@ -25,7 +24,6 @@ app = Typer(
 )
 
 app.add_typer(about)
-app.add_typer(upload_data)
 app.add_typer(upload_artifacts)
 app.add_typer(empty_data)
 app.add_typer(empty_artifacts)

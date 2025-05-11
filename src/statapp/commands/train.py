@@ -63,7 +63,7 @@ def train(
         configuration="3d_fullres",
         trainer_name="nnUNetTrainer_Statapp",
         fold=fold,
-        export_validation_probabilities=True,
+        export_validation_probabilities=False, #too big for Onyxia
         logger=logger
     )
 
