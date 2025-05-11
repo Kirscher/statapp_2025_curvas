@@ -18,6 +18,7 @@ from statapp.utils.progress_tracker import ProgressTracker, track_progress
 def upload_directory_to_s3(
     directory: str,
     remote_dir_env_var: str,
+    subfolder: str = "",
     verbose: bool = False,
     command_description: str = "Upload files to S3"
 ) -> None:
@@ -27,6 +28,7 @@ def upload_directory_to_s3(
     Args:
         directory (str): Local directory path to upload
         remote_dir_env_var (str): Environment variable name for the remote directory
+        subfolder (str): Subfolder name within the remote directory to place files in
         verbose (bool): Enable verbose output
         command_description (str): Description of the command for logging
     """
@@ -46,6 +48,12 @@ def upload_directory_to_s3(
 
     # Prepare remote path
     remote_base_path = f"{os.environ['S3_BUCKET']}/{os.environ[remote_dir_env_var]}"
+
+    # Add subfolder to remote path if provided
+    if subfolder:
+        # Ensure subfolder doesn't have leading/trailing slashes
+        clean_subfolder = subfolder.strip('/')
+        remote_base_path = f"{remote_base_path}/{clean_subfolder}"
 
     # Display info
     info_text = Text.assemble(
