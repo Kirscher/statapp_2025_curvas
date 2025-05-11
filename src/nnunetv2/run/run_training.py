@@ -272,6 +272,75 @@ def run_training_entry():
                  args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
                  device=device)
 
+def run_training_with_args(
+    dataset_name_or_id: Union[str, int],
+    configuration: str,
+    fold: Union[int, str],
+    trainer_name: str = 'nnUNetTrainer',
+    plans_identifier: str = 'nnUNetPlans',
+    pretrained_weights: Optional[str] = None,
+    num_gpus: int = 1,
+    use_compressed: bool = False,
+    export_validation_probabilities: bool = False,
+    continue_training: bool = False,
+    only_run_validation: bool = False,
+    disable_checkpointing: bool = False,
+    val_with_best: bool = False,
+    device_type: str = 'cuda',
+    logger: Optional[logging.Logger] = None
+) -> None:
+    """
+    Function that runs nnUNet training with direct arguments instead of parsing command line arguments.
+
+    Args:
+        dataset_name_or_id: Dataset name or ID to train with
+        configuration: Configuration that should be trained
+        fold: Fold of the 5-fold cross-validation (int between 0 and 4 or 'all')
+        trainer_name: Name of the trainer class to use
+        plans_identifier: Name of the plans file
+        pretrained_weights: Path to pretrained weights file
+        num_gpus: Number of GPUs to use for training
+        use_compressed: Whether to use compressed data
+        export_validation_probabilities: Whether to export validation probabilities
+        continue_training: Whether to continue training from latest checkpoint
+        only_run_validation: Whether to only run validation
+        disable_checkpointing: Whether to disable checkpointing
+        val_with_best: Whether to validate with best checkpoint
+        device_type: Device type to use ('cuda', 'cpu', or 'mps')
+        logger: Logger instance to use for logging
+    """
+    # Use logger if provided
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    if logger:
+        log = logger.info
+    else:
+        log = print
+
+    assert device_type in ['cpu', 'cuda', 'mps'], f'device_type must be either cpu, mps or cuda. Other devices are not tested/supported. Got: {device_type}.'
+
+    if device_type == 'cpu':
+        # let's allow torch to use hella threads
+        import multiprocessing
+        torch.set_num_threads(multiprocessing.cpu_count())
+        device = torch.device('cpu')
+    elif device_type == 'cuda':
+        # multithreading in torch doesn't help nnU-Net if run on GPU
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        device = torch.device('cuda')
+    else:
+        device = torch.device('mps')
+
+    log(f"Starting training for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
+
+    run_training(dataset_name_or_id, configuration, fold, trainer_name, plans_identifier, pretrained_weights,
+                 num_gpus, use_compressed, export_validation_probabilities, continue_training,
+                 only_run_validation, disable_checkpointing, val_with_best, device=device)
+
+    log(f"Training completed for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
+
 
 if __name__ == '__main__':
     os.environ['OMP_NUM_THREADS'] = '1'
