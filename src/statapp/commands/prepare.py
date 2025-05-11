@@ -426,21 +426,99 @@ def download_preprocessing(
     # Construct the local path
     local_path = f"nnUNet_preprocessed/{DATASET_PREFIX}{annotator}"
 
-    # Create progress tracker for download
-    progress = create_progress("Downloading preprocessing artifacts")
+    # Ensure the local directory exists
+    os.makedirs(local_path, exist_ok=True)
 
-    # Define callback function for progress updates
-    def progress_callback(bytes_transferred, filename):
-        progress.update(0, description=f"Downloading {filename}")
+    # Collect all objects to download
+    files_to_download = []
+    bucket = os.environ['S3_BUCKET']
+    prefix = f"{os.environ['S3_ARTIFACTS_DIR']}/{preprocessing_path}"
 
-    # Download the directory
-    downloaded_files = s3_utils.download_directory(
-        remote_path,
-        local_path,
-        callback=progress_callback
-    )
+    # Find all files in the preprocessing directory
+    for item in artifacts_contents:
+        key = item['Key']
+        if key.startswith(prefix) and not key.endswith('/'):
+            # Calculate the relative path from the prefix
+            rel_path = key[len(prefix):].lstrip('/')
 
-    progress.close()
+            # Construct the local file path
+            local_file_path = os.path.join(local_path, rel_path)
+
+            # Add to the list of files to download
+            files_to_download.append({
+                'remote_path': f"{bucket}/{key}",
+                'local_path': local_file_path,
+                'display_name': os.path.basename(key)
+            })
+
+    if not files_to_download:
+        logger.warning("No preprocessing artifact files found to download")
+        return False
+
+    # Function to get file size
+    def get_file_size(file_info):
+        # Get the actual file size from S3 for a single file
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key)
+
+    # Function to process each file
+    def process_file(file_info, progress_tracker):
+        display_name = file_info['display_name']
+
+        # Get the file size
+        file_size = get_file_size(file_info)
+
+        # Record start time
+        start_time = time.time()
+
+        try:
+            # Start tracking file download
+            progress_tracker.start_file(
+                file_info,
+                f"Downloading {display_name}",
+                file_size
+            )
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(file_info['local_path']), exist_ok=True)
+
+            # Download file
+            success = s3_utils.download_file(
+                file_info['remote_path'],
+                file_info['local_path'],
+                callback=progress_tracker.get_progress_callback(
+                    f"Downloading {display_name}",
+                    file_size,
+                    start_time
+                )
+            )
+
+            # Complete file download
+            progress_tracker.complete_file(
+                f"Downloading {display_name}",
+                file_size,
+                start_time,
+                success=success
+            )
+
+            if not success:
+                raise Exception(f"Failed to download {display_name}")
+
+        except Exception as e:
+            # Mark file as failed
+            progress_tracker.complete_file(
+                f"Error downloading {display_name}",
+                file_size,
+                start_time,
+                success=False
+            )
+            logger.error(f"Error processing {display_name}: {str(e)}")
+
+    # Track progress and process files
+    track_progress(files_to_download, get_file_size, process_file)
+
+    # Count the number of successfully downloaded files
+    downloaded_files = [f for f in files_to_download if os.path.exists(f['local_path'])]
 
     if downloaded_files:
         logger.info(f"Downloaded {len(downloaded_files)} preprocessing artifact files")
