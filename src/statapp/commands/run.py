@@ -84,7 +84,7 @@ def run(
     info(Text("Step 3: Uploading artifacts...", style="bold blue"))
 
     # Construct the directory path based on the requirements
-    directory = f"nnUnet_results/Dataset475_CURVAS_ANNO{annotator}_{dataset_code}"
+    directory = f"nnUNet_results/Dataset475_CURVAS_ANNO{annotator}_{dataset_code}"
 
     # Construct the subfolder name based on the requirements
     subfolder = f"anno{annotator}_init{seed}_fold{fold}"
