@@ -43,14 +43,17 @@ def pretty_print(text: str) -> None:
     console.print(text)
     return None
 
-def create_progress() -> Progress:
+def create_progress(description: str = "Processing") -> Progress:
     """
     Create and return a customized Progress object.
+
+    Args:
+        description (str, optional): Description for the progress bar. Defaults to "Processing".
 
     Returns:
         Progress: The configured Progress object
     """
-    return Progress(
+    progress = Progress(
         TextColumn("[bold blue]{task.description}", justify="right"),
         BarColumn(bar_width=40),
         "[progress.percentage]{task.percentage:>3.0f}%",
@@ -64,6 +67,11 @@ def create_progress() -> Progress:
         transient=True,  # Use the same line for updates
         console=console  # Use the shared console instance
     )
+
+    # Add a task with the provided description
+    progress.add_task(description, total=100, file_size="0 B", speed="0 B/s")
+
+    return progress
 
 def create_dual_progress() -> Progress:
     """
@@ -149,7 +157,7 @@ def setup_nnunet_env(base: Path, raw: Path, preprocessed: Path, results: Path) -
         'nnUNet_preprocessed': str(base / preprocessed),
         'nnUNet_results': str(base / results)
     }
-    
+
     for var_name, path in env_vars.items():
         os.environ[var_name] = path
 
