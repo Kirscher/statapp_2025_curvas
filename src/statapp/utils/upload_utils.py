@@ -10,7 +10,7 @@ from pathlib import Path
 
 from rich.text import Text
 
-import statapp.utils as utils
+import statapp.utils.utils as utils
 from statapp.utils import s3_utils
 from statapp.utils.progress_tracker import ProgressTracker, track_progress
 

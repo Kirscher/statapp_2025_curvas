@@ -101,7 +101,7 @@ def prepare(
         info(Text.assemble(("Error: ", "bold red"), ("No valid patients selected", "")))
         return
 
-    info(Text(f"Processing {len(selected_patients)} patients with annotator {annotator}", style="bold green"))
+    logger.info(Text(f"Processing {len(selected_patients)} patients with annotator {annotator}", style="bold green"))
 
     # Create necessary directories
     nnunet_raw_dir = Path("nnUNet_raw")

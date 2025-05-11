@@ -12,7 +12,7 @@ app = typer.Typer()
 @app.command()
 def upload_artifacts(
     directory: str = typer.Argument(..., help="Local directory path to upload"),
-    subfolder: str = typer.Option("", "--subfolder", "-s", help="Subfolder name within the artifacts directory"),
+    subfolder: str = typer.Argument(..., help="Subfolder name within the artifacts directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output")
 ) -> None:
     """
