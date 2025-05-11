@@ -1,21 +1,21 @@
+import logging
+import multiprocessing
 import os
 import socket
 from typing import Union, Optional
 
-import torch.cuda
+import nnunetv2
 import torch.cuda
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
-from torch.backends import cudnn
-
-import nnunetv2
 from nnunetv2.paths import nnUNet_preprocessed
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
-import logging
+from torch.backends import cudnn
+
 
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
@@ -211,6 +211,7 @@ def run_training(dataset_name_or_id: Union[str, int],
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
         nnunet_trainer.perform_actual_validation(export_validation_probabilities)
 
+
 def run_training_entry():
     import argparse
     parser = argparse.ArgumentParser()
@@ -229,10 +230,6 @@ def run_training_entry():
                              'be used when actually training. Beta. Use with caution.')
     parser.add_argument('-num_gpus', type=int, default=1, required=False,
                         help='Specify the number of GPUs to use for training')
-    parser.add_argument("--use_compressed", default=False, action="store_true", required=False,
-                        help="[OPTIONAL] If you set this flag the training cases will not be decompressed. Reading compressed "
-                             "data is much more CPU and (potentially) RAM intensive and should only be used if you "
-                             "know what you are doing")
     parser.add_argument('--npz', action='store_true', required=False,
                         help='[OPTIONAL] Save softmax predictions from final validation as npz files (in addition to predicted '
                              'segmentations). Needed for finding the best ensemble.')
@@ -269,8 +266,19 @@ def run_training_entry():
         device = torch.device('mps')
 
     run_training(args.dataset_name_or_id, args.configuration, args.fold, args.tr, args.p, args.pretrained_weights,
-                 args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
+                 args.num_gpus, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
                  device=device)
+
+
+if __name__ == '__main__':
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    # reduces the number of threads used for compiling. More threads don't help and can cause problems
+    os.environ['TORCHINDUCTOR_COMPILE_THREADS'] = 1
+    # multiprocessing.set_start_method("spawn")
+    run_training_entry()
+
 
 def run_training_with_args(
     dataset_name_or_id: Union[str, int],
@@ -336,15 +344,7 @@ def run_training_with_args(
     log(f"Starting training for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
 
     run_training(dataset_name_or_id, configuration, fold, trainer_name, plans_identifier, pretrained_weights,
-                 num_gpus, use_compressed, export_validation_probabilities, continue_training,
-                 only_run_validation, disable_checkpointing, val_with_best, device=device)
+                 num_gpus, export_validation_probabilities, continue_training, only_run_validation,
+                 disable_checkpointing, val_with_best, device)
 
     log(f"Training completed for dataset {dataset_name_or_id}, configuration {configuration}, fold {fold}")
-
-
-if __name__ == '__main__':
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
-    # multiprocessing.set_start_method("spawn")
-    run_training_entry()

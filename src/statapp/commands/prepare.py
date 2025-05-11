@@ -86,11 +86,16 @@ def prepare(
         selected_patients = list(available_patients.keys())
         info(Text(f"Selected all {len(selected_patients)} patients", style="bold green"))
     else:
+        missing_patients = []
         for patient in patients:
             if patient in available_patients:
                 selected_patients.append(patient)
             else:
-                info(Text.assemble(("Warning: ", "bold yellow"), (f"Patient UKCHLL{patient} not found in S3 data", "")))
+                missing_patients.append(patient)
+
+        if missing_patients:
+            missing_list = ", ".join([f"UKCHLL{p}" for p in missing_patients])
+            info(Text.assemble(("Warning: ", "bold yellow"), (f"The following patients were not found: {missing_list}", "")))
 
     if not selected_patients:
         info(Text.assemble(("Error: ", "bold red"), ("No valid patients selected", "")))
@@ -143,10 +148,13 @@ def prepare(
                     'display_name': f"annotation {annotator} for UKCHLL{patient}"
                 })
             else:
+                missing_files = []
                 if not image_exists:
-                    info(Text.assemble(("Warning: ", "bold yellow"), (f"Image file for UKCHLL{patient} not found", "")))
+                    missing_files.append(f"image for UKCHLL{patient}")
                 if not annotation_exists:
-                    info(Text.assemble(("Warning: ", "bold yellow"), (f"Annotation {annotator} for UKCHLL{patient} not found", "")))
+                    missing_files.append(f"annotation {annotator} for UKCHLL{patient}")
+                if missing_files:
+                    info(Text.assemble(("Warning: ", "bold yellow"), (f"Missing files: {', '.join(missing_files)}", "")))
 
         if not files_to_download:
             info(Text.assemble(("Error: ", "bold red"), ("No valid files to download", "")))
@@ -213,9 +221,6 @@ def prepare(
         # Track progress and process files
         track_progress(files_to_download, get_file_size, process_file)
 
-        # Generate dataset.json file
-        info(Text("Generating dataset.json file...", style="bold"))
-
         # Count the number of unique patients (each patient has both image and annotation)
         num_patients = len(set(file_info['patient'] for file_info in files_to_download))
 
@@ -228,11 +233,14 @@ def prepare(
             file_ending=FILE_ENDING
         )
 
-        info(Text("Dataset preparation complete!", style="bold green"))
-        info(Text(f"Dataset directory: {dataset_dir}", style="bold"))
-        info(Text(f"Images directory: {images_dir}", style="bold"))
-        info(Text(f"Labels directory: {labels_dir}", style="bold"))
-        info(Text(f"Dataset JSON file: {dataset_dir / 'dataset.json'}", style="bold"))
+        # Group all directory information into a single message
+        info(Text.assemble(
+            ("Dataset preparation complete!", "bold green"),
+            ("\nDataset directory: ", "bold"), (f"{dataset_dir}", ""),
+            ("\nImages directory: ", "bold"), (f"{images_dir}", ""),
+            ("\nLabels directory: ", "bold"), (f"{labels_dir}", ""),
+            ("\nDataset JSON file: ", "bold"), (f"{dataset_dir / 'dataset.json'}", "")
+        ))
 
     # Run plan_and_preprocess
     logger.info("Running nnUNet planning and preprocessing for dataset 475...")
