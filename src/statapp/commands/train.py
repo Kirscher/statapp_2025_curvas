@@ -6,11 +6,12 @@ This module provides commands for preparing datasets for analysis.
 
 import os
 import typer
-from typing import Optional
+from typing import Optional, List
 
 from nnunetv2.run.run_training import run_training_with_args
 from statapp.utils.utils import setup_logging, info
 from rich.text import Text
+from statapp.commands.prepare import get_dataset_code, DATASET_PREFIX
 
 app = typer.Typer()
 
@@ -19,7 +20,8 @@ def train(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
     seed: Optional[int] = typer.Argument(None, help="Set random seed for reproducibility"),
     fold: Optional[str] = typer.Option("all", "--fold", "-f", help="Fold to use for training. Can be 'all' to use all folds, or a specific fold number (0-4)."),
-
+    patients: List[str] = typer.Option(["all"], "--patients", "-p", help="List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test'"),
+    annotator: str = typer.Option("1", "--annotator", "-a", help="Annotator (1/2/3)"),
 ) -> None:
     """
     Run nnUNet training. Must be prepared with the prepare command beforehand.
@@ -27,12 +29,15 @@ def train(
     Use --verbose to enable verbose logging output.
     Use --seed to set a random seed for reproducible results.
     Use --fold to specify which fold to use for training (0-4) or 'all' to use all folds.
+    Use --patients to specify which patient set to use ('all', 'train', 'validation', 'test', or a custom list).
+    Use --annotator to specify which annotator's data to use (1/2/3).
     """
     # Set up logger
     logger = setup_logging(verbose)
 
     # Run training
     info(Text("Running nnUNet training...", style="bold blue"))
+
     # Set seed environment variable if provided
     if seed is not None:
         os.environ['SEED'] = str(seed)
@@ -58,8 +63,40 @@ def train(
     else:
         logger.info(Text("Using all folds for training", style="bold green"))
 
+    # Validate annotator input
+    if annotator not in ["1", "2", "3"]:
+        error_msg = f"Annotator must be 1, 2, or 3. Got {annotator}"
+        logger.error(Text(error_msg, style="bold red"))
+        raise typer.BadParameter(error_msg)
+
+    # Handle patient selection
+    patient_selection = patients
+    if len(patients) == 1:
+        # Check if it's one of the predefined sets
+        if patients[0] in ["all", "train", "validation", "test"]:
+            patient_selection = patients[0]
+            logger.info(Text.assemble(
+                ("Using patient set: ", "bold green"),
+                (f"{patient_selection}", "bold cyan")
+            ))
+    else:
+        logger.info(Text.assemble(
+            ("Using custom patient list: ", "bold green"),
+            (f"{', '.join(patient_selection)}", "bold cyan")
+        ))
+
+    # Generate dataset code for folder naming
+    dataset_code = get_dataset_code(patient_selection)
+
+    # Construct the dataset ID with annotator and dataset code
+    dataset_id = f"{DATASET_PREFIX}{annotator}_{dataset_code}"
+    logger.info(Text.assemble(
+        ("Using dataset: ", "bold green"),
+        (f"{dataset_id}", "bold cyan")
+    ))
+
     run_training_with_args(
-        dataset_name_or_id="475",
+        dataset_name_or_id=dataset_id,
         configuration="3d_fullres",
         trainer_name="nnUNetTrainer_Statapp",
         fold=fold,

@@ -75,7 +75,9 @@ def run(
     train(
         verbose=verbose,
         seed=seed,
-        fold=fold
+        fold=fold,
+        patients=patients,
+        annotator=annotator
     )
 
     # Step 3: Upload artifacts
