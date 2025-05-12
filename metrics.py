@@ -446,22 +446,24 @@ def apply_metrics (l_patient_files):
 
     #ECE
     print("Computing ECE")
-    ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
-    print(f"ECE : {ece_scores}")
+    #ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
+    #print(f"ECE : {ece_scores}")
 
     #ACE
     print("Computing ACE")
+    """
     ace_dict = {}
     for i in range(3):
         gt_i = annotations[i]
         correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
         ace_dict[i] = calc_ace(correct, calib_confids)
     print(f"ACE : {ace_dict}")
+    """
 
     #CRPS
     print("Computing CRPS")
-    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"CRPS : {crps_score}")
+    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"CRPS : {crps_score}")
 
     return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
