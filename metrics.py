@@ -321,8 +321,6 @@ def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
     flat_pred = bin_pred.flatten()
     flat_gt = groundtruth.flatten()
     flat_conf = confids.flatten()
-    print(groundtruth.shape)
-    print(bin_pred.shape)
 
     correct = (flat_pred == flat_gt).astype(np.int32)
 
@@ -405,20 +403,20 @@ def apply_metrics (l_files):
 
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
 
-    #dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
 
-    #ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
+    ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
 
     ace_dict = {}
     for i in range(3):
         gt_i = annotations[i]
         correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
-        ace_dict[f"ACE_{i}"] = calc_ace(correct, calib_confids)
+        ace_dict[i] = calc_ace(correct, calib_confids)
 
 
-    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
 
-    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_scores[0], "ACE_1": ace_scores[1], "ACE_2": ace_scores[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
 df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_0", "ECE_1", "ECE_2", "ACE_0", "ACE_1", "ACE_2", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
@@ -427,4 +425,5 @@ for f in l_l_files :
 	line=pd.DataFrame(apply_metrics(f))
 	df=pd.concat([df,line], ignore_index=True)
 
+#df.to_csv("metrics.csv", index=False)
 print(df)
