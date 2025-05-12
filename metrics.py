@@ -1,4 +1,11 @@
-#!pip install scikit-learn numpy torch scipy monai torchmetrics
+#IMPORTS
+"""
+The needed imports for the metrics computation.
+Please run : 
+pip install scikit-learn torch scipy monai torchmetrics
+to install the libraries that are not automatically implemented by onyxia.
+"""
+
 import os
 import re
 import numpy as np
@@ -15,50 +22,16 @@ from monai.transforms import CropForeground
 from torchmetrics.classification import MulticlassCalibrationError
 import nibabel as nib
 
-#ls=os.listdir(".")
-#raw_folder, pred_folder = [f for f in ls if re.findall(r"(raw_data|prob)", i)]
-#l_labels = os.listdir("./testing_set")
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
-#l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
+#FUNCTIONS
 
+"""
+Metrics computation functions :
+- consensus_dice_score (DICE)
+- expected_calibration_error, multirater_expected_calibration_error (ECE)
+- calc_ace, calib_stats, prepare_inputs_for_ace (ACE)
+- volume_metric, compute_probabilistic_volume, calculate_volumes_distributions, heaviside, crps_computation (CRPS)
 
-
-
-def preprocess_results(ct_image, annotations, results):
-    """
-    Preprocess the images, predictions and annotations in order to be evaluated.
-    It crops the foreground and applies the same crop to the rest of matrices.
-    This is done to save some memory and work with smaller matrices.
-    
-    ct_image: CT images of shape (slices, X, Y)
-    annotations: list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                 each gt has the following shape (slices, X, Y)
-    results: list containing the results [binarized prediction, 
-                                          pancreas_confidence,
-                                          kidney_confidence,
-                                          liver_confidence
-                                         ]
-            the binarized prediction the following values: 1: pancreas, 2: kidney, 3: liver
-            each confidence has probabilistic values that range from 0 to 1
-     
-    @output cropped_annotations, cropped_results[0], cropped_results[1:]
-  
-    """
-
-    # Define the CropForeground transform
-    cropper = CropForeground(select_fn=lambda x: x > 0)  # Assuming non-zero voxels are foreground
-
-    # Compute the cropping box based on the CT image
-    box_start, box_end = cropper.compute_bounding_box(ct_image)
-    
-    # Apply the cropping box to all annotations
-    cropped_annotations = [annotation[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for annotation in annotations]
-    cropped_results = [result[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for result in results]
-
-    return cropped_annotations, cropped_results[0], cropped_results[1:]
-
+"""
 
 '''
 Dice Score Evaluation
@@ -132,10 +105,120 @@ def consensus_dice_score(groundtruth, bin_pred, prob_pred):
         dice_scores[organ_name] = dice_metric.aggregate().item()
     
     return dice_scores, confidence
-    
 
 '''
-Volume Assessment
+Expected Calibration Error
+'''
+
+def multirater_expected_calibration_error(annotations_list, prob_pred):
+    """
+    Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
+    
+    annotations_list: list of length three containing the three annotations
+    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
+                a probability matrix per each class
+     
+    @output ece_dict
+    """
+    
+    ece_dict = {}
+
+    for e in range(3):
+        ece_dict[e] = expected_calibration_error(annotations_list[e], prob_pred)
+        
+    return ece_dict
+
+
+def expected_calibration_error(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
+    """
+    Computes the Expected Calibration Error (ECE) between the given annotation and the 
+    probabilistic prediction
+    
+    groundtruth: groundtruth matrix containing the following values: 1: pancreas, 2: kidney, 3: liver
+                    shape: (slices, X, Y)
+    prob_pred_onehot: probability prediction matrix, shape: (3, slices, X, Y), the three being
+                    a probability matrix per each class
+    num_classes: number of classes
+    n_bins: number of bins                    
+                    
+    @output ece
+    """ 
+    
+    # Convert inputs to torch tensors
+    all_groundtruth = torch.tensor(groundtruth)
+    all_samples = torch.tensor(prob_pred_onehot)
+    
+    # Calculate the probability for the background class
+    background_prob = 1 - all_samples.sum(dim=0, keepdim=True)
+    
+    # Combine background probabilities with the provided probabilities
+    all_samples_with_bg = torch.cat((background_prob, all_samples), dim=0)
+    
+    # Flatten the tensors to (num_samples, num_classes) and (num_samples,)
+    all_groundtruth_flat = all_groundtruth.reshape(-1)
+    all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)
+    
+    # Initialize the calibration error metric
+    calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
+
+    # Calculate the ECE
+    ece = calibration_error(all_samples_flat, all_groundtruth_flat).cpu().detach().numpy().astype(np.float64)
+    
+    return ece
+
+
+'''
+Average Calibration Error
+'''
+
+def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
+    background_prob = 1 - np.sum(prob_pred, axis=0, keepdims=True)
+    prob_pred_full = np.concatenate([background_prob, prob_pred], axis=0)
+
+    confids = np.max(prob_pred_full, axis=0)
+    flat_pred = bin_pred.flatten()
+    flat_gt = groundtruth.flatten()
+    flat_conf = confids.flatten()
+
+    correct = (flat_pred == flat_gt).astype(np.int32)
+
+    return correct, flat_conf
+
+def calib_stats(correct, calib_confids):
+    n_bins = 20
+    y_true = column_or_1d(correct)
+    y_prob = column_or_1d(calib_confids)
+
+    if y_prob.min() < 0 or y_prob.max() > 1:
+        raise ValueError("y_prob has values outside [0, 1]")
+
+    labels = np.unique(y_true)
+    if len(labels) > 2:
+        raise ValueError(f"Only binary classification is supported. Provided labels {labels}.")
+    y_true = label_binarize(y_true, classes=labels)[:, 0]
+
+    bins = np.linspace(0.0, 1.0 + 1e-8, n_bins + 1)
+    binids = np.digitize(y_prob, bins) - 1
+
+    bin_sums = np.bincount(binids, weights=y_prob, minlength=len(bins))
+    bin_true = np.bincount(binids, weights=y_true, minlength=len(bins))
+    bin_total = np.bincount(binids, minlength=len(bins))
+
+    nonzero = bin_total != 0
+    num_nonzero = len(nonzero[nonzero == True])
+    prob_true = bin_true[nonzero] / bin_total[nonzero]
+    prob_pred = bin_sums[nonzero] / bin_total[nonzero]
+
+    bin_discrepancies = np.abs(prob_true - prob_pred)
+    return bin_discrepancies, num_nonzero
+
+def calc_ace(correct, calib_confids):
+    bin_discrepancies, num_nonzero = calib_stats(correct, calib_confids)
+    return (1 / num_nonzero) * np.sum(bin_discrepancies)
+
+
+'''
+CRPS  evaluation
 '''
 
 def volume_metric(groundtruth, prediction, voxel_proportion=1):
@@ -253,172 +336,131 @@ def compute_probabilistic_volume(preds, voxel_proportion=1):
     return volume*voxel_proportion
 
 
-'''
-Expected Calibration Error
-'''
+"""
+Preprocessing functions : 
+- files_to_data (extracts and converts data)
+- preprocess_results (cropping)
+"""
 
-def multirater_expected_calibration_error(annotations_list, prob_pred):
+def preprocess_results(ct_image, annotations, results):
     """
-    Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
+    Preprocess the images, predictions and annotations in order to be evaluated.
+    It crops the foreground and applies the same crop to the rest of matrices.
+    This is done to save some memory and work with smaller matrices.
     
-    annotations_list: list of length three containing the three annotations
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
+    ct_image: CT images of shape (slices, X, Y)
+    annotations: list containing the three ground truths [gt1, gt2, gt3]
+                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
+                 each gt has the following shape (slices, X, Y)
+    results: list containing the results [binarized prediction, 
+                                          pancreas_confidence,
+                                          kidney_confidence,
+                                          liver_confidence
+                                         ]
+            the binarized prediction the following values: 1: pancreas, 2: kidney, 3: liver
+            each confidence has probabilistic values that range from 0 to 1
      
-    @output ece_dict
+    @output cropped_annotations, cropped_results[0], cropped_results[1:]
+  
     """
+
+    # Define the CropForeground transform
+    cropper = CropForeground(select_fn=lambda x: x > 0)  # Assuming non-zero voxels are foreground
+
+    # Compute the cropping box based on the CT image
+    box_start, box_end = cropper.compute_bounding_box(ct_image)
     
-    ece_dict = {}
+    # Apply the cropping box to all annotations
+    cropped_annotations = [annotation[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for annotation in annotations]
+    cropped_results = [result[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for result in results]
 
-    for e in range(3):
-        ece_dict[e] = expected_calibration_error(annotations_list[e], prob_pred)
-        
-    return ece_dict
+    return cropped_annotations, cropped_results[0], cropped_results[1:]
 
 
-def expected_calibration_error(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
-    """
-    Computes the Expected Calibration Error (ECE) between the given annotation and the 
-    probabilistic prediction
-    
-    groundtruth: groundtruth matrix containing the following values: 1: pancreas, 2: kidney, 3: liver
-                    shape: (slices, X, Y)
-    prob_pred_onehot: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                    a probability matrix per each class
-    num_classes: number of classes
-    n_bins: number of bins                    
-                    
-    @output ece
+def files_to_data (result_file, prob_file, patient_folder) :
     """ 
-    
-    # Convert inputs to torch tensors
-    all_groundtruth = torch.tensor(groundtruth)
-    all_samples = torch.tensor(prob_pred_onehot)
-    
-    # Calculate the probability for the background class
-    background_prob = 1 - all_samples.sum(dim=0, keepdim=True)
-    
-    # Combine background probabilities with the provided probabilities
-    all_samples_with_bg = torch.cat((background_prob, all_samples), dim=0)
-    
-    # Flatten the tensors to (num_samples, num_classes) and (num_samples,)
-    all_groundtruth_flat = all_groundtruth.reshape(-1)
-    all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)
-    
-    # Initialize the calibration error metric
-    calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
-
-    # Calculate the ECE
-    ece = calibration_error(all_samples_flat, all_groundtruth_flat).cpu().detach().numpy().astype(np.float64)
-    
-    return ece
-
-def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
-    background_prob = 1 - np.sum(prob_pred, axis=0, keepdims=True)
-    prob_pred_full = np.concatenate([background_prob, prob_pred], axis=0)
-
-    confids = np.max(prob_pred_full, axis=0)
-    flat_pred = bin_pred.flatten()
-    flat_gt = groundtruth.flatten()
-    flat_conf = confids.flatten()
-
-    correct = (flat_pred == flat_gt).astype(np.int32)
-
-    return correct, flat_conf
-
-def calib_stats(correct, calib_confids):
-    n_bins = 20
-    y_true = column_or_1d(correct)
-    y_prob = column_or_1d(calib_confids)
-
-    if y_prob.min() < 0 or y_prob.max() > 1:
-        raise ValueError("y_prob has values outside [0, 1]")
-
-    labels = np.unique(y_true)
-    if len(labels) > 2:
-        raise ValueError(f"Only binary classification is supported. Provided labels {labels}.")
-    y_true = label_binarize(y_true, classes=labels)[:, 0]
-
-    bins = np.linspace(0.0, 1.0 + 1e-8, n_bins + 1)
-    binids = np.digitize(y_prob, bins) - 1
-
-    bin_sums = np.bincount(binids, weights=y_prob, minlength=len(bins))
-    bin_true = np.bincount(binids, weights=y_true, minlength=len(bins))
-    bin_total = np.bincount(binids, minlength=len(bins))
-
-    nonzero = bin_total != 0
-    num_nonzero = len(nonzero[nonzero == True])
-    prob_true = bin_true[nonzero] / bin_total[nonzero]
-    prob_pred = bin_sums[nonzero] / bin_total[nonzero]
-
-    bin_discrepancies = np.abs(prob_true - prob_pred)
-    return bin_discrepancies, num_nonzero
-
-def calc_ace(correct, calib_confids):
-    bin_discrepancies, num_nonzero = calib_stats(correct, calib_confids)
-    return (1 / num_nonzero) * np.sum(bin_discrepancies)
-
-
-
-
-def files_to_data (result_file, prob_file, true_folder) :
-    """ 
-    from files to data
+    From patient files (paths) to data (arrays).
+    result_file : the result.nii.gz containing the predicted segmentation
+    prob_file : the result.npz containing the probabilities for each class
+    patient_folder : the folder containing the raw image and the 3 annotations
     """
-    gt1_file, gt2_file, gt3_file = [f for f in os.listdir(true_folder) if re.findall(r"annotation", f)]
-    ct_file = [f for f in os.listdir(true_folder) if re.findall(r"image", f)]
+    #Finding the names
+    gt1_file, gt2_file, gt3_file = [f for f in os.listdir(patient_folder) if re.findall(r"annotation", f)]
+    ct_file = [f for f in os.listdir(patient_folder) if re.findall(r"image", f)]
 
-    gt1 = nib.load("./UKCHLL061/"+gt1_file).get_fdata()
+    #Loading the files for GT with (slices, X, Y) shape
+    gt1 = nib.load(patient_folder+"/"+gt1_file).get_fdata()
     gt1 = gt1.transpose(2, 0, 1)
     
-    gt2 = nib.load("./UKCHLL061/"+gt2_file).get_fdata()
+    gt2 = nib.load(patient_folder+"/"+gt2_file).get_fdata()
     gt2 = gt2.transpose(2, 0, 1)
     
-    gt3 = nib.load("./UKCHLL061/"+gt3_file).get_fdata()
+    gt3 = nib.load(patient_folder+"/"+gt3_file).get_fdata()
     gt3 = gt3.transpose(2, 0, 1)
 
     annotations = [gt1, gt2, gt3]
-
-    ct_image = nib.load("./UKCHLL061/"+ct_file[0]).get_fdata()
+    #Loading the raw file with (slices, X, Y) shape
+    ct_image = nib.load(patient_folder+"/"+ct_file[0]).get_fdata()
     ct_image = ct_image.transpose(2, 0, 1)
 
+    #Loading the prediction file with (slices, X, Y) shape
     bin_pred = nib.load(result_file).get_fdata().astype(np.uint8) 
     bin_pred = bin_pred.transpose(2, 0, 1)
 
+    #Loading the raw file with (classes, slices, X, Y) shape
     prob_data = np.load(prob_file)
     prob_data=prob_data[prob_data.files[0]]
-
-    pancreas_conf = prob_data[1] # normalement 0=background
+    
+    #Extracting the probabilites per class (pancreas, kidney and liver)
+    pancreas_conf = prob_data[1]
     kidney_conf = prob_data[2]
     liver_conf = prob_data[3]
+
     results = [bin_pred, pancreas_conf, kidney_conf, liver_conf]
 
     return ct_image, annotations, results
 
+'''
+Applying the metrics to the inputed data
+'''
 
+def apply_metrics (l_patient_files):
+    '''
+    Apply all the metrics.
+    l_patient_files : list of file paths : ["path_to/result.nii.gz", "path_to/result.npz" (containing the probabilities), "path_to/GT_patient folder" (containing the 3 annotations and the raw image)]
 
-def apply_metrics (l_files):
-    ct_name=re.findall(r"\/([^\/]+)$",l_files[2])
-    ct_image, annotations, results = files_to_data(l_files[0], l_files[1], l_files[2])
-
+    '''
+    #extracting patient ID
+    ct_name=re.findall(r"\/([^\/]+)$",l_patient_files[2])
+    #from files to data
+    ct_image, annotations, results = files_to_data(l_patient_files[0], l_patient_files[1], l_patient_files[2])
+    #preprocess the data
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
-
+    #DICE
+    print( "Computing DICE")
     dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-
+    print(f"DICE : {dice_scores}")
+    #ECE
+    print("Computing ECE")
     ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
-
+    print(f"ECE : {ece_scores}")
+    #ACE
+    print("Computing ACE")
     ace_dict = {}
     for i in range(3):
         gt_i = annotations[i]
         correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
         ace_dict[i] = calc_ace(correct, calib_confids)
-
-
+    print(f"ACE : {ace_dict}")
+    #CRPS
+    print("Computing CRPS")
     crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"CRPS : {crps_score}")
 
     return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_0", "ECE_1", "ECE_2", "ACE_0", "ACE_1", "ACE_2", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
+
+df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
 l_l_files=[["./testing.nii.gz","./testing.npz","./UKCHLL061"]]
 for f in l_l_files : 
@@ -427,3 +469,11 @@ for f in l_l_files :
 
 #df.to_csv("metrics.csv", index=False)
 print(df)
+
+
+#ls=os.listdir(".")
+#raw_folder, pred_folder = [f for f in ls if re.findall(r"(raw_data|prob)", i)]
+#l_labels = os.listdir("./testing_set")
+#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
+#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
+#l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
