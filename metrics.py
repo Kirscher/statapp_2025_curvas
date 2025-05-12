@@ -377,7 +377,7 @@ def preprocess_results(ct_image, annotations, results):
     return cropped_annotations, cropped_results[0], cropped_results[1:]
 
 
-def files_to_data (result_file, prob_file, patient_folder) :
+def files_to_data (result_file, prob_file, gt_folder) :
     """ 
     From patient files (paths) to data (arrays).
     result_file : the result.nii.gz containing the predicted segmentation
@@ -385,22 +385,22 @@ def files_to_data (result_file, prob_file, patient_folder) :
     patient_folder : the folder containing the raw image and the 3 annotations
     """
     #Finding the names
-    gt1_file, gt2_file, gt3_file = [f for f in os.listdir(patient_folder) if re.findall(r"annotation", f)]
-    ct_file = [f for f in os.listdir(patient_folder) if re.findall(r"image", f)]
+    gt1_file, gt2_file, gt3_file = [f for f in os.listdir(gt_folder) if re.findall(r"annotation", f)]
+    ct_file = [f for f in os.listdir(gt_folder) if re.findall(r"image", f)]
 
     #Loading the files for GT with (slices, X, Y) shape
-    gt1 = nib.load(patient_folder+"/"+gt1_file).get_fdata()
+    gt1 = nib.load(gt_folder+"/"+gt1_file).get_fdata()
     gt1 = gt1.transpose(2, 0, 1)
     
-    gt2 = nib.load(patient_folder+"/"+gt2_file).get_fdata()
+    gt2 = nib.load(gt_folder+"/"+gt2_file).get_fdata()
     gt2 = gt2.transpose(2, 0, 1)
     
-    gt3 = nib.load(patient_folder+"/"+gt3_file).get_fdata()
+    gt3 = nib.load(gt_folder+"/"+gt3_file).get_fdata()
     gt3 = gt3.transpose(2, 0, 1)
 
     annotations = [gt1, gt2, gt3]
     #Loading the raw file with (slices, X, Y) shape
-    ct_image = nib.load(patient_folder+"/"+ct_file[0]).get_fdata()
+    ct_image = nib.load(gt_folder+"/"+ct_file[0]).get_fdata()
     ct_image = ct_image.transpose(2, 0, 1)
 
     #Loading the prediction file with (slices, X, Y) shape
@@ -409,8 +409,8 @@ def files_to_data (result_file, prob_file, patient_folder) :
 
     #Loading the raw file with (classes, slices, X, Y) shape
     prob_data = np.load(prob_file)
-    prob_data=prob_data[prob_data.files[0]]
-    
+    prob_data = prob_data[prob_data.files[0]]
+
     #Extracting the probabilites per class (pancreas, kidney and liver)
     pancreas_conf = prob_data[1]
     kidney_conf = prob_data[2]
@@ -427,23 +427,28 @@ Applying the metrics to the inputed data
 def apply_metrics (l_patient_files):
     '''
     Apply all the metrics.
-    l_patient_files : list of file paths : ["path_to/result.nii.gz", "path_to/result.npz" (containing the probabilities), "path_to/GT_patient folder" (containing the 3 annotations and the raw image)]
+    l_patient_files : dict of file paths : {"pred" : path_to/result.nii.gz", "prob" : "path_to/result.npz" (containing the probabilities), "gt" : "path_to/GT_patient folder" (containing the 3 annotations and the raw image)}
 
     '''
     #extracting patient ID
-    ct_name=re.findall(r"\/([^\/]+)$",l_patient_files[2])
+    ct_name=re.findall(r"\/([^\/]+)$",l_patient_files["gt"])
+
     #from files to data
-    ct_image, annotations, results = files_to_data(l_patient_files[0], l_patient_files[1], l_patient_files[2])
+    ct_image, annotations, results = files_to_data(l_patient_files["pred"], l_patient_files["prob"], l_patient_files["gt"])
+
     #preprocess the data
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
+
     #DICE
     print( "Computing DICE")
     dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
     print(f"DICE : {dice_scores}")
+
     #ECE
     print("Computing ECE")
     ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
     print(f"ECE : {ece_scores}")
+
     #ACE
     print("Computing ACE")
     ace_dict = {}
@@ -452,6 +457,7 @@ def apply_metrics (l_patient_files):
         correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
         ace_dict[i] = calc_ace(correct, calib_confids)
     print(f"ACE : {ace_dict}")
+
     #CRPS
     print("Computing CRPS")
     crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
@@ -460,20 +466,51 @@ def apply_metrics (l_patient_files):
     return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
 
+#BODY
+"""
+Gather the input locations and apply the metrics to all predictions.
+The input folder should be looking like this : 
+-- Folder   -- Patient_01   -- pred_01.nii.gz
+                            -- pred_prob_01.npz
+                            -- GT_01                -- image.nii.gz
+                                                    -- annotation_1.nii.gz
+                                                    -- annotation_2.nii.gz
+                                                    -- annotation_3.nii.gz
+            -- Patient_02   -- pred_02.nii.gz
+            ...
+            ...
+            ...
+"""
+
+
+#Locating data
+data_path = input(str("Path to the folder with all the patient folders : "))
+l_patients_path = os.listdir(data_path)
+l_patients=[]
+
+for patient_dir in l_patients_path:
+    patient_dict = {"pred": None, "prob": None, "gt": None}
+    patient_path = os.path.join(data_path, patient_dir)
+    for item in os.listdir(patient_path):
+            item_path = os.path.join(patient_path, item)
+            if item.endswith(".nii.gz"):
+                patient_dict["pred"] = item_path
+            elif item.endswith(".npz"):
+                patient_dict["prob"] = item_path
+            elif os.path.isdir(item_path):
+                patient_dict["gt"] = item_path
+
+    l_patients.append(patient_dict)
+
+#Prepare output
 df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
-l_l_files=[["./testing.nii.gz","./testing.npz","./UKCHLL061"]]
-for f in l_l_files : 
-	line=pd.DataFrame(apply_metrics(f))
-	df=pd.concat([df,line], ignore_index=True)
+#Computing the metrics
 
+for f in l_patients : 
+	current_line = pd.DataFrame(apply_metrics(f))
+	df = pd.concat([df,current_line], ignore_index=True)
+
+#Export data
 #df.to_csv("metrics.csv", index=False)
 print(df)
-
-
-#ls=os.listdir(".")
-#raw_folder, pred_folder = [f for f in ls if re.findall(r"(raw_data|prob)", i)]
-#l_labels = os.listdir("./testing_set")
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
-#l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
