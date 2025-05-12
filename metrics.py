@@ -1,3 +1,4 @@
+#!pip install scikit-learn numpy torch scipy monai torchmetrics
 import os
 import re
 import numpy as np
@@ -9,7 +10,6 @@ import pandas as pd
 #l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
 #l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
 #l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
-#!pip install scikit-learn numpy torch scipy monai torchmetrics
 from sklearn.utils import column_or_1d
 from sklearn.preprocessing import label_binarize
 import numpy as np
@@ -47,7 +47,7 @@ def preprocess_results(ct_image, annotations, results):
     @output cropped_annotations, cropped_results[0], cropped_results[1:]
   
     """
-    
+
     # Define the CropForeground transform
     cropper = CropForeground(select_fn=lambda x: x > 0)  # Assuming non-zero voxels are foreground
 
@@ -79,7 +79,9 @@ def consensus_dice_score(groundtruth, bin_pred, prob_pred):
     @output dice_scores, confidence
   
     """
-    
+    print(f"bin_pred shape: {bin_pred.shape}")
+    print(f"groundtruth shape: {groundtruth[0].shape}")
+
     # Transform probability predictions to one-hot encoding by taking the argmax
     prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].astype(np.uint8)
     
@@ -303,7 +305,7 @@ def expected_calibration_error(groundtruth, prob_pred_onehot, num_classes=4, n_b
     all_samples_with_bg = torch.cat((background_prob, all_samples), dim=0)
     
     # Flatten the tensors to (num_samples, num_classes) and (num_samples,)
-    all_groundtruth_flat = all_groundtruth.view(-1)
+    all_groundtruth_flat = all_groundtruth.reshape(-1)
     all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)
     
     # Initialize the calibration error metric
@@ -322,6 +324,9 @@ def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
     flat_pred = bin_pred.flatten()
     flat_gt = groundtruth.flatten()
     flat_conf = confids.flatten()
+    print(flat_pred.shape)
+    print(flat_gt.shape)
+
     correct = (flat_pred == flat_gt).astype(np.int32)
 
     return correct, flat_conf
@@ -383,6 +388,7 @@ def files_to_data (result_file, prob_file, true_folder) :
     ct_image = ct_image.transpose(2, 0, 1)
 
     bin_pred = nib.load(result_file).get_fdata().astype(np.uint8) 
+    bin_pred = bin_pred.transpose(2, 0, 1)
 
     prob_data = np.load(prob_file)
     prob_data=prob_data[prob_data.files[0]]
@@ -402,13 +408,13 @@ def apply_metrics (l_files):
 
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
 
-    dice_scores, confidence = consensus_dice_score(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
 
-    ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
+    #ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
 
     correct, calib_confids = prepare_inputs_for_ace(np.stack(annotations,axis=0), results[0], np.stack([results[1],results[2],results[3]]))
 
-    ace_score = calc_ace(correct, calib_confids)
+    #ace_score = calc_ace(correct, calib_confids)
 
     crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
 
@@ -416,7 +422,7 @@ def apply_metrics (l_files):
 
 df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_0", "ECE_1", "ECE_2", "ACE", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
-l_l_files=[["./please.nii.gz","./please.npz","./UKCHLL061"]]
+l_l_files=[["./testing.nii.gz","./testing.npz","./UKCHLL061"]]
 for f in l_l_files : 
 	line=pd.DataFrame(apply_metrics(f))
 	df=pd.concat([df,line], ignore_index=True)
