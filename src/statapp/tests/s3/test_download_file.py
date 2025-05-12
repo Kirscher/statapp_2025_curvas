@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import the S3Singleton class
-from statapp.S3Singleton import S3Singleton
+from statapp.core.S3Singleton import S3Singleton
 
 
 def calculate_md5(file_path):
