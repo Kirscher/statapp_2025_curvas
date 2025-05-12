@@ -3,16 +3,8 @@ import os
 import re
 import numpy as np
 import pandas as pd
-
-#ls=os.listdir(".")
-#raw_folder, pred_folder = [f for f in ls if re.findall(r"(raw_data|prob)", i)]
-#l_labels = os.listdir("./testing_set")
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
-#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
-#l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
 from sklearn.utils import column_or_1d
 from sklearn.preprocessing import label_binarize
-import numpy as np
 import torch
 from scipy.stats import norm
 from monai.metrics import DiceMetric
@@ -20,9 +12,16 @@ from monai.transforms import AsDiscrete
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
 from monai.transforms import CropForeground
-
 from torchmetrics.classification import MulticlassCalibrationError
 import nibabel as nib
+
+#ls=os.listdir(".")
+#raw_folder, pred_folder = [f for f in ls if re.findall(r"(raw_data|prob)", i)]
+#l_labels = os.listdir("./testing_set")
+#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.pkl$)", f)]
+#l_pred=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.nii\.gz$)", f)]
+#l_prob=[f for f in os.listdir("./"+pred_folder) if re.search(r"(prostate.*\.npz$)", f)]"""
+
 
 
 
@@ -79,8 +78,6 @@ def consensus_dice_score(groundtruth, bin_pred, prob_pred):
     @output dice_scores, confidence
   
     """
-    print(f"bin_pred shape: {bin_pred.shape}")
-    print(f"groundtruth shape: {groundtruth[0].shape}")
 
     # Transform probability predictions to one-hot encoding by taking the argmax
     prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].astype(np.uint8)
@@ -194,7 +191,7 @@ def crps_computation(predicted_volume, cdf, mean, std_dev):
     lower_limit = mean - 3 * std_dev
     upper_limit = mean + 3 * std_dev
     
-    crps_value, _ = quad(integrand, lower_limit, upper_limit)
+    crps_value, _ = quad(integrand, lower_limit, upper_limit) #augmenter la limite pour de meilleurs résultats ?
         
     return crps_value
 
@@ -324,8 +321,8 @@ def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
     flat_pred = bin_pred.flatten()
     flat_gt = groundtruth.flatten()
     flat_conf = confids.flatten()
-    print(flat_pred.shape)
-    print(flat_gt.shape)
+    print(groundtruth.shape)
+    print(bin_pred.shape)
 
     correct = (flat_pred == flat_gt).astype(np.int32)
 
@@ -408,21 +405,26 @@ def apply_metrics (l_files):
 
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
 
-    dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
 
     #ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
 
-    correct, calib_confids = prepare_inputs_for_ace(np.stack(annotations,axis=0), results[0], np.stack([results[1],results[2],results[3]]))
+    ace_dict = {}
+    for i in range(3):
+        gt_i = annotations[i]
+        correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
+        ace_dict[f"ACE_{i}"] = calc_ace(correct, calib_confids)
 
-    #ace_score = calc_ace(correct, calib_confids)
 
-    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
 
-    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE": ace_score, "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_scores[0], "ACE_1": ace_scores[1], "ACE_2": ace_scores[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_0", "ECE_1", "ECE_2", "ACE", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
+df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_0", "ECE_1", "ECE_2", "ACE_0", "ACE_1", "ACE_2", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
 l_l_files=[["./testing.nii.gz","./testing.npz","./UKCHLL061"]]
 for f in l_l_files : 
 	line=pd.DataFrame(apply_metrics(f))
 	df=pd.concat([df,line], ignore_index=True)
+
+print(df)
