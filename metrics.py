@@ -39,9 +39,14 @@ import nibabel as nib
 """
 Metrics computation functions :
 - consensus_dice_score (DICE)
+- compute_entropy (Entropies)
+- compute_hausdorff_distances (Hausdorff distances)
+- compute_auroc (AUROC)
+- rc_curve_stats, calc_aurc, calc_eaurc, compute_aurc_eaurc (AURC and EAURC)
 - expected_calibration_error, multirater_expected_calibration_error (ECE)
 - calc_ace, calib_stats, prepare_inputs_for_ace (ACE)
 - volume_metric, compute_probabilistic_volume, calculate_volumes_distributions, heaviside, crps_computation (CRPS)
+- compute_ncc (NCC)
 
 """
 
@@ -49,7 +54,7 @@ Metrics computation functions :
 Dice Score Evaluation
 '''
 
-def consensus_dice_score(groundtruth, bin_pred, prob_pred):
+def compute_consensus_dice_score(groundtruth, bin_pred, prob_pred):
     """
     Computes an average of dice score for consensus areas only.
     
@@ -120,11 +125,11 @@ def consensus_dice_score(groundtruth, bin_pred, prob_pred):
 
 
 '''
-Entropy
+Entropies evaluation
 '''
 
 
-def calculate_entropy(image):
+def compute_entropy(image):
     """
     Calculate the entropy of an image (prediction or GT).
     
@@ -143,10 +148,10 @@ def calculate_entropy(image):
     return entropy_value
 
 '''
-Hausdorff distance
+Hausdorff Distances evaluation
 '''
 
-def calculate_hausdorff_distances (groundtruth, pred):
+def compute_hausdorff_distances (groundtruth, bin_pred):
     """
     Calculate the Hausdorff distance between the ground truth and prediction.
     
@@ -163,7 +168,7 @@ def calculate_hausdorff_distances (groundtruth, pred):
 
         # Extract the coordinates of the foreground (non-zero) pixels
         gt_coords = np.column_stack(np.where(groundtruth[i] > 0))
-        pred_coords = np.column_stack(np.where(pred > 0))
+        pred_coords = np.column_stack(np.where(bin_pred > 0))
     
         # Calculate the directed Hausdorff distance in both directions
         forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
@@ -177,7 +182,7 @@ def calculate_hausdorff_distances (groundtruth, pred):
     return hausdorff_distances
 
 '''
-AUROC
+Aarea Under the ROC Curve evaluation
 '''
 def compute_auroc(groundtruth, prob_pred):
     """
@@ -211,7 +216,7 @@ def compute_auroc(groundtruth, prob_pred):
     return auroc_dict
 
 '''
-AURC and EAURC
+Area Under the Risk Curve and Expected Area Under the Risk Curve evaluation
 '''
 
 def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], list[float], list[float]]:
@@ -242,14 +247,14 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
     return coverages, selective_risks, weights
 
 
-def aurc(risks: np.array, confids: np.array):
+def calc_aurc(risks: np.array, confids: np.array):
     _, risks, weights = rc_curve_stats(risks, confids)
     return sum(
         [(risks[i] + risks[i + 1]) * 0.5 * weights[i] for i in range(len(weights))]
     )
 
 
-def eaurc(risks: np.array, confids: np.array):
+def calc_eaurc(risks: np.array, confids: np.array):
     """Compute normalized AURC, i.e. subtract AURC of optimal CSF (given fixed risks)."""
     n = len(risks)
     # optimal confidence sorts risk. Asencding here because we start from coverage 1/n
@@ -293,7 +298,7 @@ def compute_aurc_eaurc (groundtruth, prob_pred):
     return aurc_scores, eaurc_scores
 
 '''
-Expected Calibration Error
+Expected Calibration Error evaluation
 '''
 
 def multirater_ece (annotations_list, prob_pred):
@@ -310,12 +315,12 @@ def multirater_ece (annotations_list, prob_pred):
     ece_dict = {1: 0, 2: 0, 3: 0}
 
     for i in range(3):
-        ece_dict[i+1] = expected_calibration_error(annotations_list[i], prob_pred)
+        ece_dict[i+1] = calc_ece(annotations_list[i], prob_pred)
         
     return ece_dict
 
 
-def expected_calibration_error(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
+def calc_ece(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
     """
     Computes the Expected Calibration Error (ECE) between the given annotation and the 
     probabilistic prediction
@@ -354,7 +359,7 @@ def expected_calibration_error(groundtruth, prob_pred_onehot, num_classes=4, n_b
 
 
 '''
-Average Calibration Error
+Average Calibration Error evaluation    
 '''
 
 def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
@@ -370,7 +375,7 @@ def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
 
     return correct, flat_conf
 
-def calib_stats(correct, calib_confids):
+def calib_stats (correct, calib_confids):
     n_bins = 20
     y_true = column_or_1d(correct)
     y_prob = column_or_1d(calib_confids)
@@ -398,11 +403,11 @@ def calib_stats(correct, calib_confids):
     bin_discrepancies = np.abs(prob_true - prob_pred)
     return bin_discrepancies, num_nonzero
 
-def multirater_ace(annotations, bin_pred, prob_pred):
+def multirater_ace(annotations_list, bin_pred, prob_pred):
 
     ace_dict = {1: 0, 2: 0, 3: 0}
     for i in range(3):
-        gt_i = annotations[i]
+        gt_i = annotations_list[i]
         correct, calib_confids = prepare_inputs_for_ace(gt_i, bin_pred, prob_pred)
         bin_discrepancies, num_nonzero = calib_stats(correct, calib_confids)
         ace_score = (1 / num_nonzero) * np.sum(bin_discrepancies)
@@ -432,10 +437,10 @@ def volume_metric(groundtruth, prediction, voxel_proportion=1):
     cdf_list = calculate_volumes_distributions(groundtruth, voxel_proportion)
         
     crps_dict = {}    
-    organs =  {1: 'panc', 2: 'kidn', 3: 'livr'}
+    organs =  ['panc', 'kidn', 'livr']
 
-    for organ_val, organ_name in organs.items():
-        probabilistic_volume = compute_probabilistic_volume(prediction[organ_val-1], voxel_proportion)
+    for i, organ_name in enumerate (organs, start=0):
+        probabilistic_volume = compute_probabilistic_volume(prediction[i], voxel_proportion)
         crps_dict[organ_name] = crps_computation(probabilistic_volume, cdf_list[organ_name], mean_gauss[organ_name], var_gauss[organ_name])
 
     return crps_dict
@@ -531,7 +536,7 @@ def compute_probabilistic_volume(preds, voxel_proportion=1):
 NCC
 '''
 
-def compute_ncc(annotations, prob_pred):
+def compute_ncc(groundtruth, prob_pred):
     """
     Compute the normalized cross correlation between a ground truth uncertainty and a predicted uncertainty map,
     to determine how similar the maps are.
@@ -544,8 +549,7 @@ def compute_ncc(annotations, prob_pred):
     organ_name = ['panc', 'kidn', 'livr']
 
     # Uncertainty from GT (std across raters)
-    gt_masks = np.stack(annotations, axis=0)
-    gt_unc_map = np.std(gt_masks.astype(np.float32), axis=0)
+    gt_unc_map = np.std(groundtruth.astype(np.float32), axis=0)
 
     # Uncertainty from prediction (entropy)
     class_probs = np.array(prob_pred)  # [C, D, H, W]
@@ -667,22 +671,22 @@ def apply_metrics (l_patient_files):
 
     #preprocess the data
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
-
+    
     #DICE
     print( "Computing DICE")
-    #dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
     #print(f"DICE : {dice_scores}")
 
     #GT Entropy
     print("Computing Entropies")
-    #entropy_gt = calculate_entropy(np.stack(cropped_annotations, axis=0))
+    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
     #Prediction Entropy
-    #entropy_pred = calculate_entropy(cropped_bin_pred)
+    #entropy_pred = compute_entropy(cropped_bin_pred)
     #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
 
     #Hausdorff Distance
     print("Computing Hausdorff Distance")
-    #hausdorff_distances=calculate_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
     #print(f"Hausdorff Distances: {hausdorff_distances}")
     
     #AUROC
@@ -696,15 +700,14 @@ def apply_metrics (l_patient_files):
     #print(f"AURC: {aurc_scores}")
     #print(f"EAURC: {eaurc_scores}")
     
-
     #ECE
     print("Computing ECE")
-    #ece_scores = multirater_expected_calibration_error(cropped_annotations, cropped_prob_pred)
+    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
     #print(f"ECE : {ece_scores}")
 
     #ACE
     print("Computing ACE")
-    #ace_dict=multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
     #print(f"ACE : {ace_dict}")
     
 
@@ -715,8 +718,8 @@ def apply_metrics (l_patient_files):
 
     #NCC
     print("Computing NCC")
-    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    print(f"NCC : {ncc_dict}")
+    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    #print(f"NCC : {ncc_dict}")
 
 
 
