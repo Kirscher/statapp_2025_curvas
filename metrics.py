@@ -15,6 +15,7 @@ pip install scikit-learn torch scipy monai torchmetrics
 to install the libraries that are not automatically implemented by onyxia.
 """
 
+import SimpleITK as sitk
 import os
 import re
 import numpy as np
@@ -32,7 +33,6 @@ from scipy.interpolate import interp1d
 from scipy.stats import entropy
 from scipy.spatial.distance import directed_hausdorff
 from torchmetrics.classification import MulticlassCalibrationError
-import nibabel as nib
 
 #FUNCTIONS
 
@@ -123,11 +123,9 @@ def compute_consensus_dice_score(groundtruth, bin_pred, prob_pred):
     
     return dice_scores, confidence
 
-
 '''
 Entropies evaluation
 '''
-
 
 def compute_entropy(image):
     """
@@ -246,13 +244,11 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
             tmp_weight = 0
     return coverages, selective_risks, weights
 
-
 def calc_aurc(risks: np.array, confids: np.array):
     _, risks, weights = rc_curve_stats(risks, confids)
     return sum(
         [(risks[i] + risks[i + 1]) * 0.5 * weights[i] for i in range(len(weights))]
     )
-
 
 def calc_eaurc(risks: np.array, confids: np.array):
     """Compute normalized AURC, i.e. subtract AURC of optimal CSF (given fixed risks)."""
@@ -262,8 +258,7 @@ def calc_eaurc(risks: np.array, confids: np.array):
     aurc_opt = selective_risks.sum() / n
     return aurc(risks, confids) - aurc_opt
 
-
-def compute_aurc_eaurc (groundtruth, prob_pred):
+def compute_aurc_eaurc(groundtruth, prob_pred):
     """
     Compute AURC and EAURC for a single class in the segmentation task.
     
@@ -301,7 +296,7 @@ def compute_aurc_eaurc (groundtruth, prob_pred):
 Expected Calibration Error evaluation
 '''
 
-def multirater_ece (annotations_list, prob_pred):
+def multirater_ece(annotations_list, prob_pred):
     """
     Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
     
@@ -318,7 +313,6 @@ def multirater_ece (annotations_list, prob_pred):
         ece_dict[i+1] = calc_ece(annotations_list[i], prob_pred)
         
     return ece_dict
-
 
 def calc_ece(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
     """
@@ -357,7 +351,6 @@ def calc_ece(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
     
     return ece
 
-
 '''
 Average Calibration Error evaluation    
 '''
@@ -375,7 +368,7 @@ def prepare_inputs_for_ace(groundtruth, bin_pred, prob_pred):
 
     return correct, flat_conf
 
-def calib_stats (correct, calib_confids):
+def calib_stats(correct, calib_confids):
     n_bins = 20
     y_true = column_or_1d(correct)
     y_prob = column_or_1d(calib_confids)
@@ -445,10 +438,8 @@ def volume_metric(groundtruth, prediction, voxel_proportion=1):
 
     return crps_dict
 
-
 def heaviside(x):
     return 0.5 * (np.sign(x) + 1)
-
 
 def crps_computation(predicted_volume, cdf, mean, std_dev):
     """
@@ -474,7 +465,6 @@ def crps_computation(predicted_volume, cdf, mean, std_dev):
     crps_value, _ = quad(integrand, lower_limit, upper_limit) #augmenter la limite pour de meilleurs résultats ?
         
     return crps_value
-
 
 def calculate_volumes_distributions(groundtruth, voxel_proportion=1):
     """
@@ -609,49 +599,40 @@ def preprocess_results(ct_image, annotations, results):
 
     return cropped_annotations, cropped_results[0], cropped_results[1:]
 
+def sitk_to_array(sitk_img):
+    """ Convert SimpleITK image to numpy array with shape (slices, H, W) """
+    array = sitk.GetArrayFromImage(sitk_img)  # Gives shape (slices, H, W)
+    return array.astype(np.float32)
 
-def files_to_data (result_file, prob_file, gt_folder) :
-    """ 
-    From patient files (paths) to data (arrays).
-    result_file : the result.nii.gz containing the predicted segmentation
-    prob_file : the result.npz containing the probabilities for each class
-    patient_folder : the folder containing the raw image and the 3 annotations
-    """
-    #Finding the names
-    gt1_file, gt2_file, gt3_file = [f for f in os.listdir(gt_folder) if re.findall(r"annotation", f)]
-    ct_file = [f for f in os.listdir(gt_folder) if re.findall(r"image", f)]
+def files_to_data(result_file, prob_file, gt_folder):
+    # obtaining files
+    gt_files = sorted([f for f in os.listdir(gt_folder) if "annotation" in f])
+    ct_file = next(f for f in os.listdir(gt_folder) if "image" in f)
 
-    #Loading the files for GT with (slices, X, Y) shape
-    gt1 = nib.load(gt_folder+"/"+gt1_file).get_fdata()
-    gt1 = gt1.transpose(2, 0, 1)
-    
-    gt2 = nib.load(gt_folder+"/"+gt2_file).get_fdata()
-    gt2 = gt2.transpose(2, 0, 1)
-    
-    gt3 = nib.load(gt_folder+"/"+gt3_file).get_fdata()
-    gt3 = gt3.transpose(2, 0, 1)
+    # Dowloading annotations (shape: (slices, H, W))
+    annotations = []
+    for f in gt_files:
+        img = sitk.ReadImage(os.path.join(gt_folder, f))
+        annotations.append(sitk_to_array(img))
 
-    annotations = [gt1, gt2, gt3]
-    #Loading the raw file with (slices, X, Y) shape
-    ct_image = nib.load(gt_folder+"/"+ct_file[0]).get_fdata()
-    ct_image = ct_image.transpose(2, 0, 1)
+    # CT scan
+    ct_img = sitk.ReadImage(os.path.join(gt_folder, ct_file))
+    ct_array = sitk_to_array(ct_img)
 
-    #Loading the prediction file with (slices, X, Y) shape
-    bin_pred = nib.load(result_file).get_fdata().astype(np.uint8) 
-    bin_pred = bin_pred.transpose(2, 1, 0)
+    # dowloading prediction from nnU-Net
+    bin_pred_img = sitk.ReadImage(result_file)
+    bin_pred = sitk_to_array(bin_pred_img).astype(np.uint8)
 
-    #Loading the raw file with (classes, slices, X, Y) shape
+    # Dowloading probabilities (shape: (classes, slices, H, W)) and permutation 
     prob_data = np.load(prob_file)
-    prob_data = prob_data[prob_data.files[0]]
-
-    #Extracting the probabilites per class (pancreas, kidney and liver)
-    pancreas_conf = prob_data[1].transpose(0, 2, 1)
-    kidney_conf = prob_data[2].transpose(0, 2, 1)
-    liver_conf = prob_data[3].transpose(0, 2, 1)
+    prob_array = prob_data[prob_data.files[0]]  # shape: (C, Z, H, W)
+    # Extraction of the 3 classes in shape (slices, H, W)
+    pancreas_conf = prob_array[1]
+    kidney_conf = prob_array[2]
+    liver_conf = prob_array[3]
 
     results = [bin_pred, pancreas_conf, kidney_conf, liver_conf]
-
-    return ct_image, annotations, results
+    return ct_array, annotations, results
 
 '''
 Applying the metrics to the inputed data
@@ -674,57 +655,56 @@ def apply_metrics (l_patient_files):
     
     #DICE
     print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    print(f"DICE : {dice_scores}")
 
     #GT Entropy
     print("Computing Entropies")
-    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
+    entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
+    
     #Prediction Entropy
-    #entropy_pred = compute_entropy(cropped_bin_pred)
-    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    entropy_pred = compute_entropy(cropped_bin_pred)
+    print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
 
     #Hausdorff Distance
     print("Computing Hausdorff Distance")
-    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    #print(f"Hausdorff Distances: {hausdorff_distances}")
-    
-    #AUROC
-    print("Computing AUROC")
-    #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AUROC: {auroc_scores}")
+    hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    print(f"Hausdorff Distances: {hausdorff_distances}")
 
-    #AURC and EAURC
-    print("Computing AURC and EAURC")
-    #aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AURC: {aurc_scores}")
-    #print(f"EAURC: {eaurc_scores}")
-    
     #ECE
     print("Computing ECE")
-    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    #print(f"ECE : {ece_scores}")
+    ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
+    print(f"ECE : {ece_scores}")
 
     #ACE
     print("Computing ACE")
-    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    #print(f"ACE : {ace_dict}")
+    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    print(f"ACE : {ace_dict}")
     
 
     #CRPS
     print("Computing CRPS")
-    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"CRPS : {crps_score}")
+    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"CRPS : {crps_score}")
 
     #NCC
     print("Computing NCC")
-    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    #print(f"NCC : {ncc_dict}")
+    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    print(f"NCC : {ncc_dict}")
+    
+    #AUROC
+    print("Computing AUROC")
+    auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"AUROC: {auroc_scores}")
 
-
+    #AURC and EAURC
+    print("Computing AURC and EAURC")
+    aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"AURC: {aurc_scores}")
+    print(f"EAURC: {eaurc_scores}")
+    
 
     return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}
-
 
 
 #BODY
@@ -742,7 +722,6 @@ The input folder should be looking like this :
             ...
             ...
 """
-
 
 #Locating data
 data_path = "/home/onyxia/statapp_2025_curvas/truc"#input(str("Path to the folder with all the patient folders : "))
@@ -769,9 +748,10 @@ df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy
 #Computing the metrics
 
 for f in l_patients : 
-	current_line = pd.DataFrame(apply_metrics(f))
-	df = pd.concat([df,current_line], ignore_index=True)
+    current_line = pd.DataFrame(apply_metrics(f))
+    df = pd.concat([df,current_line], ignore_index=True)
 
 #Export data
 #df.to_csv("metrics.csv", index=False)
 print(df)
+
