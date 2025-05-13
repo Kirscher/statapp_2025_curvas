@@ -22,13 +22,16 @@ import numpy as np
 import pandas as pd
 from sklearn.utils import column_or_1d
 from sklearn.preprocessing import label_binarize
+from sklearn.metrics import roc_auc_score
 import torch
 from scipy.stats import norm
 from monai.metrics import DiceMetric
 from monai.transforms import AsDiscrete
+from monai.transforms import CropForeground
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
-from monai.transforms import CropForeground
+from scipy.stats import entropy
+from scipy.spatial.distance import directed_hausdorff
 from torchmetrics.classification import MulticlassCalibrationError
 import nibabel as nib
 
@@ -115,6 +118,91 @@ def consensus_dice_score(groundtruth, bin_pred, prob_pred):
         dice_scores[organ_name] = dice_metric.aggregate().item()
     
     return dice_scores, confidence
+
+
+'''
+Entropy
+'''
+
+
+def calculate_entropy(image):
+    """
+    Calculate the entropy of an image (prediction or GT).
+    
+    Parameters:
+    - image: numpy array representing the image or volume (slices, X, Y)
+    """
+    # Flatten the image and compute the histogram
+    image_flat = image.flatten()
+    
+    # Calculate the histogram and normalize it
+    hist, _ = np.histogram(image_flat, bins=256, range=(0, 256), density=True)
+    
+    # Compute the Shannon entropy
+    entropy_value = entropy(hist)
+    
+    return entropy_value
+
+'''
+Hausdorff distance
+'''
+
+def calculate_hausdorff_distance(gt, pred):
+    """
+    Calculate the Hausdorff distance between the ground truth and prediction.
+    
+    Parameters:
+    - gt: Ground truth binary segmentation 
+    - pred: Predicted binary segmentation 
+    
+    @output hausdorff_distance
+    """
+    # Extract the coordinates of the foreground (non-zero) pixels
+    gt_coords = np.column_stack(np.where(gt > 0))
+    pred_coords = np.column_stack(np.where(pred > 0))
+    
+    # Calculate the directed Hausdorff distance in both directions
+    forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
+    backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
+    
+    # The Hausdorff distance is the maximum of the two directed distances
+    hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
+    
+    return hausdorff_distance
+
+'''
+AUROC
+'''
+def compute_auroc(groundtruth, prob_pred):
+    """
+    Computes the AUROC (Area Under the Receiver Operating Characteristic Curve)
+    for each class in a multi-class segmentation task.
+
+    groundtruth: numpy array, shape (classes, slices, X, Y)
+                 Ground truth segmentation masks (binary, 1 for presence of class, 0 for absence).
+                 This should have dimensions: [3, slices, X, Y] where 3 is the number of classes (pancreas, kidney, liver).
+
+    prob_pred: numpy array, shape (classes, slices, X, Y)
+               The predicted probabilities for each class (output of softmax or sigmoid function).
+
+    @output  auroc_dict
+    """
+
+    # Reshape groundtruth and prob_pred into 2D arrays for each class
+    auroc_dict = {}
+    organs =  {1: 'panc', 2: 'kidn', 3: 'livr'}
+    num_classes = groundtruth.shape[0]  # Number of classes (3 for pancreas, kidney, liver)
+    
+    for i in range(num_classes):
+        # Flatten the groundtruth for class i and the predicted probabilities for class i
+        gt_class = (groundtruth[i] > 0).astype(np.uint8).flatten()  # Convert to binary groundtruth
+        prob_class = prob_pred[i].flatten()  # Flatten the probabilities for class i
+        
+        # Calculate AUROC score for class i
+        auroc_score = roc_auc_score(gt_class, prob_class)
+        auroc_dict[organs[i + 1]] = auroc_score
+
+    return auroc_dict
 
 '''
 Expected Calibration Error
@@ -415,16 +503,16 @@ def files_to_data (result_file, prob_file, gt_folder) :
 
     #Loading the prediction file with (slices, X, Y) shape
     bin_pred = nib.load(result_file).get_fdata().astype(np.uint8) 
-    bin_pred = bin_pred.transpose(2, 0, 1)
+    bin_pred = bin_pred.transpose(2, 1, 0)
 
     #Loading the raw file with (classes, slices, X, Y) shape
     prob_data = np.load(prob_file)
     prob_data = prob_data[prob_data.files[0]]
 
     #Extracting the probabilites per class (pancreas, kidney and liver)
-    pancreas_conf = prob_data[1]
-    kidney_conf = prob_data[2]
-    liver_conf = prob_data[3]
+    pancreas_conf = prob_data[1].transpose(0, 2, 1)
+    kidney_conf = prob_data[2].transpose(0, 2, 1)
+    liver_conf = prob_data[3].transpose(0, 2, 1)
 
     results = [bin_pred, pancreas_conf, kidney_conf, liver_conf]
 
@@ -451,8 +539,30 @@ def apply_metrics (l_patient_files):
 
     #DICE
     print( "Computing DICE")
-    dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    print(f"DICE : {dice_scores}")
+    #dice_scores, confidence = consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #print(f"DICE : {dice_scores}")
+
+    #GT Entropy
+    print("Computing Entropies")
+    #entropy_gt = calculate_entropy(np.stack(cropped_annotations, axis=0))
+    #Prediction Entropy
+    #entropy_pred = calculate_entropy(cropped_bin_pred)
+    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+
+    #Hausdorff Distance
+    print("Computing Hausdorff Distance")
+    """
+    hausdorff_distances = {}
+    organs = ['panc', 'kidn', 'livr']
+    for i, organ in enumerate(organs, start=1):
+        hausdorff_dist = calculate_hausdorff_distance(cropped_annotations[i-1], cropped_bin_pred)
+        hausdorff_distances[organ] = hausdorff_dist
+    print(f"Hausdorff Distances: {hausdorff_distances}")
+    """
+    #AUROC
+    print("Computing AUROC")
+    auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"AUROC: {auroc_scores}")
 
     #ECE
     print("Computing ECE")
@@ -475,7 +585,7 @@ def apply_metrics (l_patient_files):
     #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
     #print(f"CRPS : {crps_score}")
 
-    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "Entropy_GT": entropy_gt, "Entropy_Pred": entropy_pred, "Hausdorff_panc": hausdorff_distances['panc'], "Hausdorff_kidn": hausdorff_distances['kidn'], "Hausdorff_livr": hausdorff_distances['livr'], "AUROC_panc":auroc_scores["panc"], "AUROC_kidn":auroc_scores["kidn"], "AUROC_livr":auroc_scores["livr"], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
 
 #BODY
@@ -496,7 +606,7 @@ The input folder should be looking like this :
 
 
 #Locating data
-data_path = input(str("Path to the folder with all the patient folders : "))
+data_path = "/home/onyxia/statapp_2025_curvas/truc"#input(str("Path to the folder with all the patient folders : "))
 l_patients_path = os.listdir(data_path)
 l_patients=[]
 
@@ -515,7 +625,7 @@ for patient_dir in l_patients_path:
     l_patients.append(patient_dict)
 
 #Prepare output
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
+df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
 #Computing the metrics
 
