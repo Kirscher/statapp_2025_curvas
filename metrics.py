@@ -583,14 +583,11 @@ def compute_ncc(groundtruth, prob_pred):
         sigma_pred = np.std(entropy_map, ddof=1)
 
         # Handle cases where standard deviation is zero
-        if sigma_gt == 0 or sigma_pred == 0:
-            print(f"Class {class_id} - NCC: Skipping, zero variance")
-            ncc = 0.0
-        else:
-            gt_norm = gt_unc_map - mu_gt
-            pred_norm = entropy_map - mu_pred
-            prod = np.sum(gt_norm * pred_norm)
-            ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+    
+        gt_norm = gt_unc_map - mu_gt
+        pred_norm = entropy_map - mu_pred
+        prod = np.sum(gt_norm * pred_norm)
+        ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
 
         # Store NCC for this class
         
@@ -730,13 +727,13 @@ def apply_metrics (l_patient_files):
 
     #NCC
     print("Computing NCC")
-    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    #print(f"NCC : {ncc_dict}")
+    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    print(f"NCC : {ncc_dict}")
     
     #AUROC
     print("Computing AUROC")
-    auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"AUROC: {auroc_scores}")
+    #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"AUROC: {auroc_scores}")
 
     #AURC and EAURC
     print("Computing AURC and EAURC")
