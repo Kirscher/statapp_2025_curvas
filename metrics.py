@@ -509,6 +509,27 @@ def compute_probabilistic_volume(preds, voxel_proportion=1):
     
     return volume*voxel_proportion
 
+'''
+NCC
+'''
+
+def compute_ncc(gt_unc_map: np.array, pred_unc_map: np.array):
+    """
+    Compute the normalized cross correlation between a ground truth uncertainty and a predicted uncertainty map,
+    to determine how similar the maps are.
+    :param gt_unc_map: the ground truth uncertainty map based on the rater variability
+    :param pred_unc_map: the predicted uncertainty map
+    :return: float: the normalized cross correlation between gt and predicted uncertainty map
+    """
+    mu_gt = np.mean(gt_unc_map)
+    mu_pred = np.mean(pred_unc_map)
+    sigma_gt = np.std(gt_unc_map, ddof=1)
+    sigma_pred = np.std(pred_unc_map, ddof=1)
+    gt_norm = gt_unc_map - mu_gt
+    pred_norm = pred_unc_map - mu_pred
+    prod = np.sum(np.multiply(gt_norm, pred_norm))
+    ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+    return ncc
 
 """
 Preprocessing functions : 
@@ -675,9 +696,28 @@ def apply_metrics (l_patient_files):
     print("Computing CRPS")
     #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
     #print(f"CRPS : {crps_score}")
+    ncc_dict = {}
+    organ_name = ['panc', 'kidn', 'livr']
+
+    #NCC
+    # Uncertainty from GT (std across raters)
+    gt_masks = np.stack(cropped_annotations, axis=0)  # [3, D, H, W]
+    gt_unc_map = np.std(gt_masks.astype(np.float32), axis=0)
+
+    # Uncertainty from prediction (entropy)
+    class_probs = np.array(cropped_prob_pred)  # [C, D, H, W]
+    entropy_map = -np.sum(class_probs * np.log(class_probs + 1e-8), axis=0)
+
+    # NCC
+    for i, organ in enumerate(organ_name):
+        ncc_score = compute_ncc(gt_unc_map, entropy_map)
+        ncc_dict[organ] = ncc_score
+
+    print(f"NCC : {ncc_score}")
 
 
-    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "Entropy_GT": entropy_gt, "Entropy_Pred": entropy_pred, "Hausdorff_panc": hausdorff_distances['panc'], "Hausdorff_kidn": hausdorff_distances['kidn'], "Hausdorff_livr": hausdorff_distances['livr'], "AUROC_panc": auroc_scores["panc"], "AUROC_kidn": auroc_scores["kidn"], "AUROC_livr": auroc_scores["livr"], "AURC_panc": aurc_scores["panc"], "AURC_kidn": aurc_scores["kidn"], "AURC_livr": aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn": eaurc_scores["kidn"], "EAURC_livr": eaurc_scores["livr"], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+
+    return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}
 
 
 
@@ -718,7 +758,7 @@ for patient_dir in l_patients_path:
     l_patients.append(patient_dict)
 
 #Prepare output
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "AURC_panc", "AURC_kidn", "AURC_livr", "EAURC_panc", "EAURC_kidn", "AURC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
+df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "AURC_panc", "AURC_kidn", "AURC_livr", "EAURC_panc", "EAURC_kidn", "AURC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr", "NCC"])
 
 #Computing the metrics
 
