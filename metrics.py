@@ -1,3 +1,13 @@
+"""
+This code aims at computing metrics for nnUNet segmentation predictions. It has 3 parts : 
+-Imports
+-Functions (metric computation and preprocess functions)
+-Body (applying the functions)
+
+It requires a folder with for each patient a folder containing GT and predictions (see BODY part for the detail)
+"""
+
+
 #IMPORTS
 """
 The needed imports for the metrics computation.
