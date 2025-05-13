@@ -146,7 +146,7 @@ def calculate_entropy(image):
 Hausdorff distance
 '''
 
-def calculate_hausdorff_distance(gt, pred):
+def calculate_hausdorff_distances (groundtruth, pred):
     """
     Calculate the Hausdorff distance between the ground truth and prediction.
     
@@ -156,18 +156,25 @@ def calculate_hausdorff_distance(gt, pred):
     
     @output hausdorff_distance
     """
-    # Extract the coordinates of the foreground (non-zero) pixels
-    gt_coords = np.column_stack(np.where(gt > 0))
-    pred_coords = np.column_stack(np.where(pred > 0))
+    hausdorff_distances = {}
+    organs = ['panc', 'kidn', 'livr']
     
-    # Calculate the directed Hausdorff distance in both directions
-    forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
-    backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
+    for i, organ in enumerate(organs, start=0):
+
+        # Extract the coordinates of the foreground (non-zero) pixels
+        gt_coords = np.column_stack(np.where(groundtruth[i] > 0))
+        pred_coords = np.column_stack(np.where(pred > 0))
     
-    # The Hausdorff distance is the maximum of the two directed distances
-    hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
+        # Calculate the directed Hausdorff distance in both directions
+        forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
+        backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
     
-    return hausdorff_distance
+        # The Hausdorff distance is the maximum of the two directed distances
+        hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
+        hausdorff_distances[organ] = hausdorff_distance
+
+    
+    return hausdorff_distances
 
 '''
 AUROC
@@ -251,7 +258,7 @@ def eaurc(risks: np.array, confids: np.array):
     return aurc(risks, confids) - aurc_opt
 
 
-def compute_aurc_for_class(groundtruth, prob_pred, class_index):
+def compute_aurc_eaurc (groundtruth, prob_pred):
     """
     Compute AURC and EAURC for a single class in the segmentation task.
     
@@ -261,30 +268,35 @@ def compute_aurc_for_class(groundtruth, prob_pred, class_index):
     prob_pred: numpy array, shape (num_classes, slices, X, Y)
                Predicted probabilities for each class (output of softmax/sigmoid).
     
-    class_index: int
-                 The class index (0, 1, or 2 for pancreas, kidney, or liver).
-    
-    @output class_aurc class_eaurc
+    @output aurc_scores, eaurc_scores
     """
-    # Flatten groundtruth and probabilities for the specific class
-    gt_class = (groundtruth[class_index] > 0).astype(np.uint8).flatten()
-    prob_class = prob_pred[class_index].flatten()
+    aurc_scores = {}
+    eaurc_scores = {}
+    organs = ['panc', 'kidn', 'livr']
 
-    # Compute risk (error) for each pixel (1 if incorrect, 0 if correct)
-    risks = np.abs(gt_class - prob_class)  # Binary error (0 or 1)
-    confids = prob_class  # Confidence is the predicted probability for the class
+    for i, organ in enumerate(organs):
+        
+        # Flatten groundtruth and probabilities for the specific class
+        gt_class = (groundtruth[i] > 0).astype(np.uint8).flatten()
+        prob_class = prob_pred[i].flatten()
 
-    # Calculate AURC and EAURC for this class
-    class_aurc = aurc(risks, confids)
-    class_eaurc = eaurc(risks, confids)
+        # Compute risk (error) for each pixel (1 if incorrect, 0 if correct)
+        risks = np.abs(gt_class - prob_class)  # Binary error (0 or 1)
+        confids = prob_class  # Confidence is the predicted probability for the class
+
+        # Calculate AURC and EAURC for this class
+        class_aurc = aurc(risks, confids)
+        class_eaurc = eaurc(risks, confids)
+        aurc_scores[organ] = class_aurc
+        eaurc_scores[organ] = class_eaurc
     
-    return class_aurc, class_eaurc
+    return aurc_scores, eaurc_scores
 
 '''
 Expected Calibration Error
 '''
 
-def multirater_expected_calibration_error(annotations_list, prob_pred):
+def multirater_ece (annotations_list, prob_pred):
     """
     Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
     
@@ -295,10 +307,10 @@ def multirater_expected_calibration_error(annotations_list, prob_pred):
     @output ece_dict
     """
     
-    ece_dict = {}
+    ece_dict = {1: 0, 2: 0, 3: 0}
 
-    for e in range(3):
-        ece_dict[e] = expected_calibration_error(annotations_list[e], prob_pred)
+    for i in range(3):
+        ece_dict[i+1] = expected_calibration_error(annotations_list[i], prob_pred)
         
     return ece_dict
 
@@ -386,10 +398,16 @@ def calib_stats(correct, calib_confids):
     bin_discrepancies = np.abs(prob_true - prob_pred)
     return bin_discrepancies, num_nonzero
 
-def calc_ace(correct, calib_confids):
-    bin_discrepancies, num_nonzero = calib_stats(correct, calib_confids)
-    return (1 / num_nonzero) * np.sum(bin_discrepancies)
+def multirater_ace(annotations, bin_pred, prob_pred):
 
+    ace_dict = {1: 0, 2: 0, 3: 0}
+    for i in range(3):
+        gt_i = annotations[i]
+        correct, calib_confids = prepare_inputs_for_ace(gt_i, bin_pred, prob_pred)
+        bin_discrepancies, num_nonzero = calib_stats(correct, calib_confids)
+        ace_score = (1 / num_nonzero) * np.sum(bin_discrepancies)
+        ace_dict[i+1] = ace_score
+    return ace_dict
 
 '''
 CRPS  evaluation
@@ -513,7 +531,7 @@ def compute_probabilistic_volume(preds, voxel_proportion=1):
 NCC
 '''
 
-def compute_ncc(gt_unc_map: np.array, pred_unc_map: np.array):
+def compute_ncc(annotations, prob_pred):
     """
     Compute the normalized cross correlation between a ground truth uncertainty and a predicted uncertainty map,
     to determine how similar the maps are.
@@ -521,15 +539,31 @@ def compute_ncc(gt_unc_map: np.array, pred_unc_map: np.array):
     :param pred_unc_map: the predicted uncertainty map
     :return: float: the normalized cross correlation between gt and predicted uncertainty map
     """
-    mu_gt = np.mean(gt_unc_map)
-    mu_pred = np.mean(pred_unc_map)
-    sigma_gt = np.std(gt_unc_map, ddof=1)
-    sigma_pred = np.std(pred_unc_map, ddof=1)
-    gt_norm = gt_unc_map - mu_gt
-    pred_norm = pred_unc_map - mu_pred
-    prod = np.sum(np.multiply(gt_norm, pred_norm))
-    ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
-    return ncc
+
+    ncc_dict = {}
+    organ_name = ['panc', 'kidn', 'livr']
+
+    # Uncertainty from GT (std across raters)
+    gt_masks = np.stack(annotations, axis=0)
+    gt_unc_map = np.std(gt_masks.astype(np.float32), axis=0)
+
+    # Uncertainty from prediction (entropy)
+    class_probs = np.array(prob_pred)  # [C, D, H, W]
+    entropy_map = -np.sum(class_probs * np.log(class_probs + 1e-8), axis=0)
+
+    # NCC
+    for i, organ in enumerate(organ_name):
+        
+        mu_gt = np.mean(gt_unc_map)
+        mu_pred = np.mean(entropy_map)
+        sigma_gt = np.std(gt_unc_map, ddof=1)
+        sigma_pred = np.std(entropy_map, ddof=1)
+        gt_norm = gt_unc_map - mu_gt
+        pred_norm = entropy_map - mu_pred
+        prod = np.sum(np.multiply(gt_norm, pred_norm))
+        ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+        ncc_dict[organ] = ncc
+    return ncc_dict
 
 """
 Preprocessing functions : 
@@ -648,14 +682,9 @@ def apply_metrics (l_patient_files):
 
     #Hausdorff Distance
     print("Computing Hausdorff Distance")
-    """
-    hausdorff_distances = {}
-    organs = ['panc', 'kidn', 'livr']
-    for i, organ in enumerate(organs, start=1):
-        hausdorff_dist = calculate_hausdorff_distance(cropped_annotations[i-1], cropped_bin_pred)
-        hausdorff_distances[organ] = hausdorff_dist
-    print(f"Hausdorff Distances: {hausdorff_distances}")
-    """
+    #hausdorff_distances=calculate_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    #print(f"Hausdorff Distances: {hausdorff_distances}")
+    
     #AUROC
     print("Computing AUROC")
     #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
@@ -663,18 +692,10 @@ def apply_metrics (l_patient_files):
 
     #AURC and EAURC
     print("Computing AURC and EAURC")
-    """
-    aurc_scores = {}
-    eaurc_scores = {}
-    organs = ['panc', 'kidn', 'livr']
-    for i, organ in enumerate(organs):
-        class_aurc, class_eaurc = compute_aurc_for_class(np.stack(cropped_annotations, axis=0), cropped_prob_pred, class_index=i)
-        aurc_scores[organ] = class_aurc
-        eaurc_scores[organ] = class_eaurc
-
-    print(f"AURC: {aurc_scores}")
-    print(f"EAURC: {eaurc_scores}")
-    """
+    #aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"AURC: {aurc_scores}")
+    #print(f"EAURC: {eaurc_scores}")
+    
 
     #ECE
     print("Computing ECE")
@@ -683,37 +704,19 @@ def apply_metrics (l_patient_files):
 
     #ACE
     print("Computing ACE")
-    """
-    ace_dict = {}
-    for i in range(3):
-        gt_i = annotations[i]
-        correct, calib_confids = prepare_inputs_for_ace(gt_i, results[0], np.stack([results[1], results[2], results[3]]))
-        ace_dict[i] = calc_ace(correct, calib_confids)
-    print(f"ACE : {ace_dict}")
-    """
+    #ace_dict=multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    #print(f"ACE : {ace_dict}")
+    
 
     #CRPS
     print("Computing CRPS")
     #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
     #print(f"CRPS : {crps_score}")
-    ncc_dict = {}
-    organ_name = ['panc', 'kidn', 'livr']
 
     #NCC
-    # Uncertainty from GT (std across raters)
-    gt_masks = np.stack(cropped_annotations, axis=0)  # [3, D, H, W]
-    gt_unc_map = np.std(gt_masks.astype(np.float32), axis=0)
-
-    # Uncertainty from prediction (entropy)
-    class_probs = np.array(cropped_prob_pred)  # [C, D, H, W]
-    entropy_map = -np.sum(class_probs * np.log(class_probs + 1e-8), axis=0)
-
-    # NCC
-    for i, organ in enumerate(organ_name):
-        ncc_score = compute_ncc(gt_unc_map, entropy_map)
-        ncc_dict[organ] = ncc_score
-
-    print(f"NCC : {ncc_score}")
+    print("Computing NCC")
+    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    print(f"NCC : {ncc_dict}")
 
 
 
