@@ -180,7 +180,7 @@ def compute_hausdorff_distances (groundtruth, bin_pred):
     return hausdorff_distances
 
 '''
-Aarea Under the ROC Curve evaluation
+Area Under the ROC Curve evaluation
 '''
 def compute_auroc(groundtruth, prob_pred):
     """
@@ -534,29 +534,70 @@ def compute_ncc(groundtruth, prob_pred):
     :param pred_unc_map: the predicted uncertainty map
     :return: float: the normalized cross correlation between gt and predicted uncertainty map
     """
-
+    
     ncc_dict = {}
     organ_name = ['panc', 'kidn', 'livr']
 
     # Uncertainty from GT (std across raters)
-    gt_unc_map = np.std(groundtruth.astype(np.float32), axis=0)
+    gt_unc_map = np.std(np.stack(groundtruth, axis=0).astype(np.float32), axis=0)
 
     # Uncertainty from prediction (entropy)
-    class_probs = np.array(prob_pred)  # [C, D, H, W]
+    class_probs = np.array(prob_pred)  
     entropy_map = -np.sum(class_probs * np.log(class_probs + 1e-8), axis=0)
 
     # NCC
-    for i, organ in enumerate(organ_name):
+    mu_gt = np.mean(gt_unc_map)
+    mu_pred = np.mean(entropy_map)
+    sigma_gt = np.std(gt_unc_map, ddof=1)
+    sigma_pred = np.std(entropy_map, ddof=1)
+    gt_norm = gt_unc_map - mu_gt
+    pred_norm = entropy_map - mu_pred
+    prod = np.sum(np.multiply(gt_norm, pred_norm))
+    ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+    ncc_dict['global_ncc'] = ncc
+
+    prob_pred = np.array(prob_pred)
+    num_classes = prob_pred.shape[0]  # Number of classes (C)
+
+    # Iterate over each class (organ)
+    for class_id in range(1, num_classes + 1):
+        # Extract the ground truth for this class (for each rater)
+        gt_organ_list = [np.where(rater == class_id, 1, 0) for rater in groundtruth]  # Shape: (N_raters, D, H, W)
         
+        # Stack GT annotations across raters to calculate uncertainty
+        gt_per_class = np.stack(gt_organ_list, axis=0).astype(np.float32)  # Shape: (N_raters, D, H, W)
+        
+        # Calculate uncertainty for the class (std across raters)
+        gt_unc_map = np.std(gt_per_class, axis=0)  # Shape: (D, H, W)
+
+        # Extract the predicted probabilities for this class (C, D, H, W), class_id corresponds to index
+        pred_probs = prob_pred[class_id - 1, :, :, :]  # Shape: (D, H, W)
+
+        # Calculate the uncertainty in prediction for this class: entropy map
+        entropy_map = -np.sum(pred_probs * np.log(pred_probs + 1e-8), axis=0)  # Shape: (D, H, W)
+
+        # NCC calculation: compare uncertainty between ground truth and prediction for this class
         mu_gt = np.mean(gt_unc_map)
         mu_pred = np.mean(entropy_map)
         sigma_gt = np.std(gt_unc_map, ddof=1)
         sigma_pred = np.std(entropy_map, ddof=1)
-        gt_norm = gt_unc_map - mu_gt
-        pred_norm = entropy_map - mu_pred
-        prod = np.sum(np.multiply(gt_norm, pred_norm))
-        ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
-        ncc_dict[organ] = ncc
+
+        # Handle cases where standard deviation is zero
+        if sigma_gt == 0 or sigma_pred == 0:
+            print(f"Class {class_id} - NCC: Skipping, zero variance")
+            ncc = 0.0
+        else:
+            gt_norm = gt_unc_map - mu_gt
+            pred_norm = entropy_map - mu_pred
+            prod = np.sum(gt_norm * pred_norm)
+            ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+
+        # Store NCC for this class
+        
+        ncc_dict[f'class_{class_id}'] = ncc
+
+        
+    
     return ncc_dict
 
 """
@@ -655,42 +696,42 @@ def apply_metrics (l_patient_files):
     
     #DICE
     print( "Computing DICE")
-    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    print(f"DICE : {dice_scores}")
+    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #print(f"DICE : {dice_scores}")
 
     #GT Entropy
     print("Computing Entropies")
-    entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
+    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
     
     #Prediction Entropy
-    entropy_pred = compute_entropy(cropped_bin_pred)
-    print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    #entropy_pred = compute_entropy(cropped_bin_pred)
+    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
 
     #Hausdorff Distance
     print("Computing Hausdorff Distance")
-    hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    print(f"Hausdorff Distances: {hausdorff_distances}")
+    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    #print(f"Hausdorff Distances: {hausdorff_distances}")
 
     #ECE
     print("Computing ECE")
-    ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    print(f"ECE : {ece_scores}")
+    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
+    #print(f"ECE : {ece_scores}")
 
     #ACE
     print("Computing ACE")
-    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    print(f"ACE : {ace_dict}")
+    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    #print(f"ACE : {ace_dict}")
     
 
     #CRPS
     print("Computing CRPS")
-    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"CRPS : {crps_score}")
+    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"CRPS : {crps_score}")
 
     #NCC
     print("Computing NCC")
-    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    print(f"NCC : {ncc_dict}")
+    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    #print(f"NCC : {ncc_dict}")
     
     #AUROC
     print("Computing AUROC")
@@ -699,9 +740,9 @@ def apply_metrics (l_patient_files):
 
     #AURC and EAURC
     print("Computing AURC and EAURC")
-    aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"AURC: {aurc_scores}")
-    print(f"EAURC: {eaurc_scores}")
+    #aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"AURC: {aurc_scores}")
+    #print(f"EAURC: {eaurc_scores}")
     
 
     return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}
