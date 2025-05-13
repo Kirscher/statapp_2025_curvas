@@ -7,7 +7,6 @@ This code aims at computing metrics for nnUNet segmentation predictions. It has 
 It requires a folder with for each patient a folder containing GT and predictions (see BODY part for the detail)
 """
 
-
 #IMPORTS
 """
 The needed imports for the metrics computation.
@@ -643,6 +642,7 @@ def apply_metrics (l_patient_files):
 
     #AURC and EAURC
     print("Computing AURC and EAURC")
+    """
     aurc_scores = {}
     eaurc_scores = {}
     organs = ['panc', 'kidn', 'livr']
@@ -653,6 +653,7 @@ def apply_metrics (l_patient_files):
 
     print(f"AURC: {aurc_scores}")
     print(f"EAURC: {eaurc_scores}")
+    """
 
     #ECE
     print("Computing ECE")
@@ -675,7 +676,9 @@ def apply_metrics (l_patient_files):
     #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
     #print(f"CRPS : {crps_score}")
 
+
     return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "Entropy_GT": entropy_gt, "Entropy_Pred": entropy_pred, "Hausdorff_panc": hausdorff_distances['panc'], "Hausdorff_kidn": hausdorff_distances['kidn'], "Hausdorff_livr": hausdorff_distances['livr'], "AUROC_panc": auroc_scores["panc"], "AUROC_kidn": auroc_scores["kidn"], "AUROC_livr": auroc_scores["livr"], "AURC_panc": aurc_scores["panc"], "AURC_kidn": aurc_scores["kidn"], "AURC_livr": aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn": eaurc_scores["kidn"], "EAURC_livr": eaurc_scores["livr"], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+
 
 
 #BODY
