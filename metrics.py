@@ -205,6 +205,83 @@ def compute_auroc(groundtruth, prob_pred):
     return auroc_dict
 
 '''
+AURC and EAURC
+'''
+
+def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], list[float], list[float]]:
+    coverages = []
+    selective_risks = []
+    assert len(risks.shape) == 1 and len(confids.shape) == 1 and len(risks) == len(confids)
+
+    n_samples = len(risks)
+    idx_sorted = np.argsort(confids)
+
+    coverage = n_samples
+    error_sum = sum(risks[idx_sorted])
+
+    coverages.append(coverage / n_samples)
+    selective_risks.append(error_sum / n_samples)
+
+    weights = []
+    tmp_weight = 0
+    for i in range(0, len(idx_sorted) - 1):
+        coverage = coverage - 1
+        error_sum = error_sum - risks[idx_sorted[i]]
+        tmp_weight += 1
+        if i == 0 or confids[idx_sorted[i]] != confids[idx_sorted[i - 1]]:
+            coverages.append(coverage / n_samples)
+            selective_risks.append(error_sum / (n_samples - 1 - i))
+            weights.append(tmp_weight / n_samples)
+            tmp_weight = 0
+    return coverages, selective_risks, weights
+
+
+def aurc(risks: np.array, confids: np.array):
+    _, risks, weights = rc_curve_stats(risks, confids)
+    return sum(
+        [(risks[i] + risks[i + 1]) * 0.5 * weights[i] for i in range(len(weights))]
+    )
+
+
+def eaurc(risks: np.array, confids: np.array):
+    """Compute normalized AURC, i.e. subtract AURC of optimal CSF (given fixed risks)."""
+    n = len(risks)
+    # optimal confidence sorts risk. Asencding here because we start from coverage 1/n
+    selective_risks = np.sort(risks).cumsum() / np.arange(1, n + 1)
+    aurc_opt = selective_risks.sum() / n
+    return aurc(risks, confids) - aurc_opt
+
+
+def compute_aurc_for_class(groundtruth, prob_pred, class_index):
+    """
+    Compute AURC and EAURC for a single class in the segmentation task.
+    
+    groundtruth: numpy array, shape (slices, X, Y)
+                 Binary groundtruth segmentation mask for a specific class.
+    
+    prob_pred: numpy array, shape (num_classes, slices, X, Y)
+               Predicted probabilities for each class (output of softmax/sigmoid).
+    
+    class_index: int
+                 The class index (0, 1, or 2 for pancreas, kidney, or liver).
+    
+    @output class_aurc class_eaurc
+    """
+    # Flatten groundtruth and probabilities for the specific class
+    gt_class = (groundtruth[class_index] > 0).astype(np.uint8).flatten()
+    prob_class = prob_pred[class_index].flatten()
+
+    # Compute risk (error) for each pixel (1 if incorrect, 0 if correct)
+    risks = np.abs(gt_class - prob_class)  # Binary error (0 or 1)
+    confids = prob_class  # Confidence is the predicted probability for the class
+
+    # Calculate AURC and EAURC for this class
+    class_aurc = aurc(risks, confids)
+    class_eaurc = eaurc(risks, confids)
+    
+    return class_aurc, class_eaurc
+
+'''
 Expected Calibration Error
 '''
 
@@ -561,8 +638,21 @@ def apply_metrics (l_patient_files):
     """
     #AUROC
     print("Computing AUROC")
-    auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"AUROC: {auroc_scores}")
+    #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"AUROC: {auroc_scores}")
+
+    #AURC and EAURC
+    print("Computing AURC and EAURC")
+    aurc_scores = {}
+    eaurc_scores = {}
+    organs = ['panc', 'kidn', 'livr']
+    for i, organ in enumerate(organs):
+        class_aurc, class_eaurc = compute_aurc_for_class(np.stack(cropped_annotations, axis=0), cropped_prob_pred, class_index=i)
+        aurc_scores[organ] = class_aurc
+        eaurc_scores[organ] = class_eaurc
+
+    print(f"AURC: {aurc_scores}")
+    print(f"EAURC: {eaurc_scores}")
 
     #ECE
     print("Computing ECE")
@@ -585,7 +675,7 @@ def apply_metrics (l_patient_files):
     #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
     #print(f"CRPS : {crps_score}")
 
-    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "Entropy_GT": entropy_gt, "Entropy_Pred": entropy_pred, "Hausdorff_panc": hausdorff_distances['panc'], "Hausdorff_kidn": hausdorff_distances['kidn'], "Hausdorff_livr": hausdorff_distances['livr'], "AUROC_panc":auroc_scores["panc"], "AUROC_kidn":auroc_scores["kidn"], "AUROC_livr":auroc_scores["livr"], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
+    return {"CT": ct_name, "DICE_panc": dice_scores['panc'], "DICE_kidn": dice_scores['kidn'], "DICE_livr": dice_scores['livr'], "Entropy_GT": entropy_gt, "Entropy_Pred": entropy_pred, "Hausdorff_panc": hausdorff_distances['panc'], "Hausdorff_kidn": hausdorff_distances['kidn'], "Hausdorff_livr": hausdorff_distances['livr'], "AUROC_panc": auroc_scores["panc"], "AUROC_kidn": auroc_scores["kidn"], "AUROC_livr": auroc_scores["livr"], "AURC_panc": aurc_scores["panc"], "AURC_kidn": aurc_scores["kidn"], "AURC_livr": aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn": eaurc_scores["kidn"], "EAURC_livr": eaurc_scores["livr"], "ECE_0": ece_scores[0], "ECE_1": ece_scores[1], "ECE_2": ece_scores[2], "ACE_0": ace_dict[0], "ACE_1": ace_dict[1], "ACE_2": ace_dict[2], "CRPS_panc": crps_score['panc'], "CRPS_kidn": crps_score['kidn'], "CRPS_livr": crps_score['livr']}
 
 
 #BODY
@@ -625,7 +715,7 @@ for patient_dir in l_patients_path:
     l_patients.append(patient_dict)
 
 #Prepare output
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
+df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "AURC_panc", "AURC_kidn", "AURC_livr", "EAURC_panc", "EAURC_kidn", "AURC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr"])
 
 #Computing the metrics
 
