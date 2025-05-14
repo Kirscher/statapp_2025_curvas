@@ -11,7 +11,7 @@ It requires a folder with for each patient a folder containing GT and prediction
 """
 The needed imports for the metrics computation.
 Please run : 
-pip install scikit-learn torch scipy monai torchmetrics
+pip install scikit-learn torch scipy monai torchmetrics numba
 to install the libraries that are not automatically implemented by onyxia.
 """
 
@@ -520,65 +520,27 @@ def compute_ncc(groundtruth, prob_pred):
     """
     
     ncc_dict = {}
-    organ_name = ['panc', 'kidn', 'livr']
+    organ_name = ['GT1-2', 'GT1-3', 'GT2-3']
+    pairs = [(0, 1), (0, 2), (1, 2)]
 
-    # Uncertainty from GT (std across raters)
-    gt_unc_map = np.std(np.stack(groundtruth, axis=0).astype(np.float32), axis=0)
+    for idx, (i, j) in enumerate(pairs):
+        gt1 = groundtruth[i].astype(np.float32)
+        gt2 = groundtruth[j].astype(np.float32)
 
-    # Uncertainty from prediction (entropy)
-    class_probs = np.array(prob_pred)  
-    entropy_map = -np.sum(class_probs * np.log(class_probs + 1e-8), axis=0)
+        mu_gt1 = np.mean(gt1)
+        mu_gt2 = np.mean(gt2)
+        sigma_gt1 = np.std(gt1, ddof=1)
+        sigma_gt2 = np.std(gt2, ddof=1)
 
-    # NCC
-    mu_gt = np.mean(gt_unc_map)
-    mu_pred = np.mean(entropy_map)
-    sigma_gt = np.std(gt_unc_map, ddof=1)
-    sigma_pred = np.std(entropy_map, ddof=1)
-    gt_norm = gt_unc_map - mu_gt
-    pred_norm = entropy_map - mu_pred
-    prod = np.sum(np.multiply(gt_norm, pred_norm))
-    ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
-    ncc_dict['global_ncc'] = ncc
+        gt1_norm = gt1 - mu_gt1
+        gt2_norm = gt2 - mu_gt2
+        prod = np.sum(gt1_norm * gt2_norm)
 
-    prob_pred = np.array(prob_pred)
-    num_classes = prob_pred.shape[0]  # Number of classes (C)
+        ncc = (1 / (np.size(gt1) * sigma_gt1 * sigma_gt2)) * prod
+        ncc_dict[organ_name[idx]] = ncc
 
-    # Iterate over each class (organ)
-    for class_id in range(1, num_classes + 1):
-        # Extract the ground truth for this class (for each rater)
-        gt_organ_list = [np.where(rater == class_id, 1, 0) for rater in groundtruth]  # Shape: (N_raters, D, H, W)
-        
-        # Stack GT annotations across raters to calculate uncertainty
-        gt_per_class = np.stack(gt_organ_list, axis=0).astype(np.float32)  # Shape: (N_raters, D, H, W)
-        
-        # Calculate uncertainty for the class (std across raters)
-        gt_unc_map = np.std(gt_per_class, axis=0)  # Shape: (D, H, W)
-
-        # Extract the predicted probabilities for this class (C, D, H, W), class_id corresponds to index
-        pred_probs = prob_pred[class_id - 1, :, :, :]  # Shape: (D, H, W)
-
-        # Calculate the uncertainty in prediction for this class: entropy map
-        entropy_map = -np.sum(pred_probs * np.log(pred_probs + 1e-8), axis=0)  # Shape: (D, H, W)
-
-        # NCC calculation: compare uncertainty between ground truth and prediction for this class
-        mu_gt = np.mean(gt_unc_map)
-        mu_pred = np.mean(entropy_map)
-        sigma_gt = np.std(gt_unc_map, ddof=1)
-        sigma_pred = np.std(entropy_map, ddof=1)
-
-        # Handle cases where standard deviation is zero
-        if sigma_gt == 0 or sigma_pred == 0:
-            print(f"Class {class_id} - NCC: Skipping, zero variance")
-            ncc = 0.0
-        else:
-            gt_norm = gt_unc_map - mu_gt
-            pred_norm = entropy_map - mu_pred
-            prod = np.sum(gt_norm * pred_norm)
-            ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
-
-        # Store NCC for this class
-        
-        ncc_dict[f'class_{class_id}'] = ncc
+    # Optionally: mean of the 3 NCCs
+    ncc_dict['mean'] = np.mean(list(ncc_dict.values()))
 
     return ncc_dict
 
@@ -602,10 +564,13 @@ def compute_patient_crop_box(annotations):
     return box_start, box_end
 
 
-def preprocess_results(ct_image, annotations, results, box_start, box_end):
+def preprocess_results(ct_image, annotations, results, box_start, box_end, padding=0):
     """
     Utilise une bounding box prédéfinie pour croper toutes les images du patient.
     """
+    box_start = [max(0, s - padding) for s in box_start]
+    box_end = [min(ct_image.shape[1:][i], e + padding) for i, e in enumerate(box_end)]
+
     cropped_annotations = [a[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for a in annotations]
     cropped_results = [r[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for r in results]
     return cropped_annotations, cropped_results[0], cropped_results[1:]
@@ -662,6 +627,13 @@ def compute_ece_parallel(args):
 def compute_crps_parallel(args):
     return volume_metric(*args)
 
+def compute_auroc_parallel(args):
+    return compute_aurc_eaurc(*args)
+
+def compute_aurc_eaurc_parallel(args):
+    return compute_aurc_eaurc(*args)
+
+
 def compute_fast_metrics_parallel(args):
     annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred = args
 
@@ -674,7 +646,6 @@ def compute_fast_metrics_parallel(args):
     return entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict
 
 
-# TODO il faut ajouter AURC et EAURC
 def apply_metrics(l_patient_files):
     '''
     Apply selected metrics with simple and clear parallelization.
@@ -697,6 +668,8 @@ def apply_metrics(l_patient_files):
     args_dice = (annotations_stack, cropped_bin_pred, cropped_prob_pred)
     args_ece = (cropped_annotations, cropped_prob_pred)
     args_crps = (annotations_stack, cropped_prob_pred)
+    args_aurc_eaurc = (annotations_stack, cropped_prob_pred)
+    args_auroc = (annotations_stack, cropped_prob_pred)
     args_fast = (annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred)
 
     # Parallel computation
@@ -704,16 +677,25 @@ def apply_metrics(l_patient_files):
         future_dice = executor.submit(compute_dice_parallel, args_dice)
         future_ece = executor.submit(compute_ece_parallel, args_ece)
         future_crps = executor.submit(compute_crps_parallel, args_crps)
+        future_aurc_eaurc = executor.submit(compute_aurc_eaurc_parallel, args_aurc_eaurc)
+        future_auroc = executor.submit(compute_auroc_parallel, args_auroc)
         future_fast = executor.submit(compute_fast_metrics_parallel, args_fast)
 
-        dice_scores = future_dice.result()
-        print(f"[{ct_name}] DICE: {dice_scores}")
+        dice_scores, conf_scores = future_dice.result()
+        print(f"[{ct_name}] DICE: {dice_scores} CONF : {conf_scores}")
 
         ece_scores = future_ece.result()
         print(f"[{ct_name}] ECE: {ece_scores}")
 
         crps_score = future_crps.result()
         print(f"[{ct_name}] CRPS: {crps_score}")
+
+        auroc_score = future_auroc.result()
+        print(f"[{ct_name}] AUROC: {auroc_score}")
+
+        aurc_score, eaurc_score = future_aurc_eaurc.result()
+        print(f"[{ct_name}] AURC: {aurc_score}")
+        print(f"[{ct_name}] EAURC: {eaurc_score}")
 
         entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict = future_fast.result()
         print(f"[{ct_name}] Entropy_GT: {entropy_gt}, Entropy_Pred: {entropy_pred}")
@@ -724,9 +706,12 @@ def apply_metrics(l_patient_files):
     # Return results
     return {
         "CT": ct_name,
-        "DICE_panc": dice_scores[0],
-        "DICE_kidn": dice_scores[1],
-        "DICE_livr": dice_scores[2],
+        "DICE_panc": dice_scores["panc"],
+        "DICE_kidn": dice_scores["kidn"],
+        "DICE_livr": dice_scores["livr"],
+        "CONF_panc": conf_scores["panc"],
+        "CONF_kidn": conf_scores["kidn"],
+        "CONF_livr": conf_scores["livr"],
         "Entropy_GT": entropy_gt,
         "Entropy_Pred": entropy_pred,
         "Hausdorff_panc": hausdorff_distances["panc"],
@@ -741,7 +726,10 @@ def apply_metrics(l_patient_files):
         "CRPS_panc": crps_score["panc"],
         "CRPS_kidn": crps_score["kidn"],
         "CRPS_livr": crps_score["livr"],
-        "NCC": ncc_dict,
+        "NCC_GT1-2": ncc_dict["GT1-2"],
+        "NCC_GT1-3": ncc_dict["GT1-3"],
+        "NCC_GT2-3": ncc_dict["GT2-3"],
+        "NCC_mean": ncc_dict["mean"]
     }
 
 
@@ -783,7 +771,33 @@ for patient_dir in l_patients_path:
     l_patients.append(patient_dict)
 
 #Prepare output
-df = pd.DataFrame(columns=["CT", "DICE_panc", "DICE_kidn", "DICE_livr", "Entropy_GT", "Entropy_Pred", "Hausdorff_panc", "Hausdorff_kidn", "Hausdorff_livr", "AUROC_panc", "AUROC_kidn", "AUROC_livr", "AURC_panc", "AURC_kidn", "AURC_livr", "EAURC_panc", "EAURC_kidn", "AURC_livr", "ECE_1", "ECE_2", "ECE_3", "ACE_1", "ACE_2", "ACE_3", "CRPS_panc", "CRPS_kidn", "CRPS_livr", "NCC"])
+df = pd.DataFrame(columns=[
+        "CT",
+        "DICE_panc",
+        "DICE_kidn",
+        "DICE_livr",
+        "CONF_panc",
+        "CONF_kidn",
+        "CONF_livr",
+        "Entropy_GT",
+        "Entropy_Pred",
+        "Hausdorff_panc",
+        "Hausdorff_kidn",
+        "Hausdorff_livr",
+        "ECE_0",
+        "ECE_1",
+        "ECE_2",
+        "ACE_0",
+        "ACE_1",
+        "ACE_2",
+        "CRPS_panc",
+        "CRPS_kidn",
+        "CRPS_livr",
+        "NCC_GT1-2",
+        "NCC_GT1-3",
+        "NCC_GT2-3",
+        "NCC_mean"
+    ])
 
 #Computing the metrics
 

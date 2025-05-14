@@ -256,7 +256,7 @@ def calc_eaurc(risks: np.array, confids: np.array):
     # optimal confidence sorts risk. Asencding here because we start from coverage 1/n
     selective_risks = np.sort(risks).cumsum() / np.arange(1, n + 1)
     aurc_opt = selective_risks.sum() / n
-    return aurc(risks, confids) - aurc_opt
+    return calc_aurc(risks, confids) - aurc_opt
 
 def compute_aurc_eaurc(groundtruth, prob_pred):
     """
@@ -693,8 +693,8 @@ def apply_metrics (l_patient_files):
     
     #DICE
     print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    print(f"DICE : {dice_scores}")
 
     #GT Entropy
     print("Computing Entropies")
@@ -727,8 +727,8 @@ def apply_metrics (l_patient_files):
 
     #NCC
     print("Computing NCC")
-    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    print(f"NCC : {ncc_dict}")
+    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    #print(f"NCC : {ncc_dict}")
     
     #AUROC
     print("Computing AUROC")
