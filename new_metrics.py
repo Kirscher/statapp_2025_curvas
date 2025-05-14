@@ -299,8 +299,8 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
         confids = prob_class  # Confidence is the predicted probability for the class
 
         # Calculate AURC and EAURC for this class
-        class_aurc = aurc(risks, confids)
-        class_eaurc = eaurc(risks, confids)
+        class_aurc = calc_aurc(risks, confids)
+        class_eaurc = calc_eaurc(risks, confids)
         aurc_scores[organ] = class_aurc
         eaurc_scores[organ] = class_eaurc
     
@@ -666,43 +666,43 @@ def apply_metrics (l_patient_files):
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results, box_start, box_end)
 
     #DICE
-    print( "Computing DICE")
-    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    print(f"DICE : {dice_scores}")
+    #print( "Computing DICE")
+    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #print(f"DICE : {dice_scores}")
 
     #GT Entropy
-    print("Computing Entropies")
-    entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
+    #print("Computing Entropies")
+    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
     
     #Prediction Entropy
-    entropy_pred = compute_entropy(cropped_bin_pred)
-    print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    #entropy_pred = compute_entropy(cropped_bin_pred)
+    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
 
     #Hausdorff Distance
-    print("Computing Hausdorff Distance")
-    hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    print(f"Hausdorff Distances: {hausdorff_distances}")
+    #print("Computing Hausdorff Distance")
+    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    #print(f"Hausdorff Distances: {hausdorff_distances}")
 
     #ECE
-    print("Computing ECE")
-    ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    print(f"ECE : {ece_scores}")
+    #print("Computing ECE")
+    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
+    #print(f"ECE : {ece_scores}")
 
     #ACE
-    print("Computing ACE")
-    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    print(f"ACE : {ace_dict}")
+    #print("Computing ACE")
+    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    #print(f"ACE : {ace_dict}")
     
 
     #CRPS
-    print("Computing CRPS")
-    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"CRPS : {crps_score}")
+    #print("Computing CRPS")
+    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    #print(f"CRPS : {crps_score}")
 
     #NCC
-    print("Computing NCC")
-    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    print(f"NCC : {ncc_dict}")
+    #print("Computing NCC")
+    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    #print(f"NCC : {ncc_dict}")
     
     #AUROC
     #print("Computing AUROC")
@@ -710,10 +710,10 @@ def apply_metrics (l_patient_files):
     #print(f"AUROC: {auroc_scores}")
 
     #AURC and EAURC
-    #print("Computing AURC and EAURC")
-    #aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AURC: {aurc_scores}")
-    #print(f"EAURC: {eaurc_scores}")
+    print("Computing AURC and EAURC")
+    aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"AURC: {aurc_scores}")
+    print(f"EAURC: {eaurc_scores}")
     
 
     return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}

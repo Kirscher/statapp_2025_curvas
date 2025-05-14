@@ -285,8 +285,8 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
         confids = prob_class  # Confidence is the predicted probability for the class
 
         # Calculate AURC and EAURC for this class
-        class_aurc = aurc(risks, confids)
-        class_eaurc = eaurc(risks, confids)
+        class_aurc = calc_aurc(risks, confids)
+        class_eaurc = calc_eaurc(risks, confids)
         aurc_scores[organ] = class_aurc
         eaurc_scores[organ] = class_eaurc
     
