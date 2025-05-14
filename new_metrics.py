@@ -55,73 +55,86 @@ Metrics computation functions :
 Dice Score Evaluation
 '''
 
+@njit
+def compute_consensus_masks(groundtruth, num_organs=3):
+    """
+    Computes consensus, consensus background, and dissensus masks for all organs.
+    
+    Returns:
+        consensus: shape (3, slices, X, Y)
+        consensus_bck: same shape
+        dissensus: same shape
+    """
+    consensus = np.zeros((num_organs, groundtruth.shape[1], groundtruth.shape[2], groundtruth.shape[3]), dtype=np.uint8)
+    consensus_bck = np.zeros_like(consensus)
+    dissensus = np.zeros_like(consensus)
+
+    for i in range(num_organs):
+        organ_val = i + 1
+        for s in range(groundtruth.shape[1]):
+            for x in range(groundtruth.shape[2]):
+                for y in range(groundtruth.shape[3]):
+                    # Check consensus on foreground
+                    fg_agree = True
+                    bck_agree = True
+                    for annot in range(groundtruth.shape[0]):
+                        if groundtruth[annot, s, x, y] != organ_val:
+                            fg_agree = False
+                        if groundtruth[annot, s, x, y] == organ_val:
+                            bck_agree = False
+                    consensus[i, s, x, y] = 1 if fg_agree else 0
+                    consensus_bck[i, s, x, y] = 1 if bck_agree else 0
+                    if not fg_agree and not bck_agree:
+                        dissensus[i, s, x, y] = 1
+    return consensus, consensus_bck, dissensus
+
 def compute_consensus_dice_score(groundtruth, bin_pred, prob_pred):
     """
-    Computes an average of dice score for consensus areas only.
-    
-    groundtruth: numpy stack list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                    (3, slices, X, Y)
-    bin_pred: binarized prediction matrix containing values: {0,1,2,3}
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
-     
-    @output dice_scores, confidence
-  
+    Computes average dice score on consensus regions only.
     """
 
-    # Transform probability predictions to one-hot encoding by taking the argmax
-    prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].astype(np.uint8)
-    
-    # Split ground truth into separate organs and calculate consensus
-    organs =  {1: 'panc', 2: 'kidn', 3: 'livr'}
-    consensus = {}
-    dissensus = {}
+    # One-hot encoding of binarized predictions (shape: (4, slices, X, Y))
+    prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].numpy().astype(np.uint8)
 
-    for organ_val, organ_name in organs.items():
-        # Get the ground truth for the current organ
-        organ_gt = (groundtruth == organ_val).astype(np.uint8)
-        organ_bck = (groundtruth != organ_val).astype(np.uint8)
-        
-        # Calculate consensus regions (all annotators agree)
-        consensus[organ_name] = np.logical_and.reduce(organ_gt, axis=0).astype(np.uint8)
-        consensus[f"{organ_name}_bck"] = np.logical_and.reduce(organ_bck, axis=0).astype(np.uint8)
-        
-        # Calculate dissensus regions (where both background and foreground are 0)
-        dissensus[organ_name] = np.logical_and(consensus[organ_name] == 0, 
-                                               consensus[f"{organ_name}_bck"]== 0).astype(np.uint8)
-    
-    # Mask the predictions and ground truth with the consensus areas
+    # Organ mapping
+    organs = {1: 'panc', 2: 'kidn', 3: 'livr'}
+    num_organs = 3
+
+    # Compute consensus and dissensus masks
+    consensus, consensus_bck, dissensus = compute_consensus_masks(groundtruth)
+
     predictions = {}
     groundtruth_consensus = {}
     confidence = {}
+    dice_scores = {}
 
-    for organ_val, organ_name in organs.items():
-        # Apply the dissensus mask to exclude non-consensus areas
-        filtered_prediction = prediction_onehot[organ_val-1] * (1 - dissensus[organ_name])
-        filtered_groundtruth = consensus[organ_name] * (1 - dissensus[organ_name])
-        
-        predictions[organ_name] = filtered_prediction
-        groundtruth_consensus[organ_name] = filtered_groundtruth
-        
-        # Compute mean probabilities and confidence in the consensus area
-        prob_in_consensus_organ = prob_pred[organ_val-1] * np.where(consensus[organ_name]==1, 1, np.nan)
-        prob_in_consensus_bck = prob_pred[organ_val-1] * np.where(consensus[f"{organ_name}_bck"]==1, 1, np.nan)
-        mean_conf_organ = np.nanmean(prob_in_consensus_organ)
-        mean_conf_bck = np.nanmean(prob_in_consensus_bck)        
-        confidence[organ_name] = (((1-mean_conf_bck)+mean_conf_organ)/2)
-    
-    # Create DiceMetric instance
     dice_metric = DiceMetric(include_background=False, reduction="mean", get_not_nans=False, ignore_empty=True)
 
-    dice_scores = {}
-    for organ_name in organs.values():
-        gt = torch.from_numpy(groundtruth_consensus[organ_name])
-        pred = torch.from_numpy(predictions[organ_name])
+    for i, organ_name in organs.items():
+        idx = i - 1
+
+        # Mask prediction and groundtruth using dissensus
+        pred_masked = prediction_onehot[idx] * (1 - dissensus[idx])
+        gt_masked = consensus[idx] * (1 - dissensus[idx])
+
+        predictions[organ_name] = pred_masked
+        groundtruth_consensus[organ_name] = gt_masked
+
+        # Confidence: mean probability in consensus organ and background
+        prob_organ = np.where(consensus[idx] == 1, prob_pred[idx], np.nan)
+        prob_bck = np.where(consensus_bck[idx] == 1, prob_pred[idx], np.nan)
+
+        mean_conf_organ = np.nanmean(prob_organ)
+        mean_conf_bck = np.nanmean(prob_bck)
+        confidence[organ_name] = ((1 - mean_conf_bck) + mean_conf_organ) / 2
+
+        # Compute Dice score using MONAI
         dice_metric.reset()
-        dice_metric(pred, gt)
+        gt_tensor = torch.from_numpy(gt_masked)
+        pred_tensor = torch.from_numpy(pred_masked)
+        dice_metric(pred_tensor, gt_tensor)
         dice_scores[organ_name] = dice_metric.aggregate().item()
-    
+
     return dice_scores, confidence
 
 '''
@@ -651,8 +664,8 @@ def apply_metrics (l_patient_files):
 
     #DICE
     print( "Computing DICE")
-    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    print(f"DICE : {dice_scores}")
+    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    #print(f"DICE : {dice_scores}")
 
     #GT Entropy
     #print("Computing Entropies")
