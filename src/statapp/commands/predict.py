@@ -271,7 +271,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
         return None
 
     # Download the image file
-    local_image_path = patient_dir / os.path.basename(image_file)
+    local_image_path = patient_dir / f"CURVAS_{patient_id}_0000.nii.gz"
     logger.info(f"Downloading image for patient UKCHLL{patient_id}...")
 
     # Start time for tracking
