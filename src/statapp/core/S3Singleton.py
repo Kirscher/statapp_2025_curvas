@@ -28,10 +28,10 @@ class S3Singleton:
     # Default transfer configuration for all uploads
     _transfer_config = TransferConfig(
         multipart_threshold=8 * 1024 * 1024,  # 8MB - use multipart upload for anything larger than this
-        max_concurrency=20,                   # Number of threads for concurrent uploads
+        max_concurrency=10,                   # Reduced from 20 to 10 to prevent connection pool issues
         multipart_chunksize=8 * 1024 * 1024,  # 8MB per part - larger parts for better performance
         use_threads=True,                     # Use threads for faster uploads
-        max_io_queue=100                      # Control memory usage
+        max_io_queue=50                       # Reduced from 100 to 50 to control memory usage
     )
 
     def __new__(cls) -> 'S3Singleton':
@@ -51,7 +51,7 @@ class S3Singleton:
                 'aws_secret_access_key': os.environ["S3_SECRET_KEY"],
                 'config': Config(
                     signature_version='s3v4',
-                    max_pool_connections=50  # Default is 10, increasing for better performance
+                    max_pool_connections=25  # Reduced from 50 to 25 to prevent connection pool issues
                 )
             }
 

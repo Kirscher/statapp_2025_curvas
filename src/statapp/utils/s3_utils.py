@@ -343,46 +343,56 @@ def download_directory(remote_dir: str, local_dir: str,
         if 'Contents' in page:
             objects.extend(page['Contents'])
 
-    # Process files in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    # Reduce the number of concurrent downloads to avoid connection pool issues
+    max_workers = 10  # Reduced from 20 to 10
+
+    # Process files in parallel with a reduced number of workers
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_file = {}
+        batch_size = 10  # Process files in smaller batches
 
-        for obj in objects:
-            key = obj['Key']
+        for i in range(0, len(objects), batch_size):
+            batch = objects[i:i+batch_size]
 
-            # Skip if this is a directory marker
-            if key.endswith('/'):
-                continue
+            # Process this batch
+            for obj in batch:
+                key = obj['Key']
 
-            # Calculate the relative path from the prefix
-            rel_path = key[len(prefix):].lstrip('/')
+                # Skip if this is a directory marker
+                if key.endswith('/'):
+                    continue
 
-            # Construct the local file path
-            local_file_path = os.path.join(local_dir, rel_path)
+                # Calculate the relative path from the prefix
+                rel_path = key[len(prefix):].lstrip('/')
 
-            # Create a callback wrapper that includes the filename if callback was provided
-            file_callback = None
-            if callback:
-                filename = os.path.basename(key)
-                def file_callback_fn(bytes_transferred):
-                    callback(bytes_transferred, filename)
-                file_callback = file_callback_fn
+                # Construct the local file path
+                local_file_path = os.path.join(local_dir, rel_path)
 
-            # Submit download task to the executor
-            future = executor.submit(
-                download_file_task, 
-                bucket, 
-                key, 
-                local_file_path, 
-                file_callback
-            )
-            future_to_file[future] = key
+                # Create a callback wrapper that includes the filename if callback was provided
+                file_callback = None
+                if callback:
+                    filename = os.path.basename(key)
+                    def file_callback_fn(bytes_transferred):
+                        callback(bytes_transferred, filename)
+                    file_callback = file_callback_fn
 
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(future_to_file):
-            result = future.result()
-            if result:
-                downloaded_files.append(result)
+                # Submit download task to the executor
+                future = executor.submit(
+                    download_file_task, 
+                    bucket, 
+                    key, 
+                    local_file_path, 
+                    file_callback
+                )
+                future_to_file[future] = key
+
+            # Process results for this batch as they complete
+            for future in concurrent.futures.as_completed(list(future_to_file.keys())):
+                result = future.result()
+                if result:
+                    downloaded_files.append(result)
+                # Remove the future from the dictionary to free up resources
+                del future_to_file[future]
 
     return downloaded_files
 
@@ -398,7 +408,14 @@ def parse_remote_path(remote_path: str, local_path: str = None) -> Tuple[str, st
     Returns:
         Tuple[str, str]: Bucket and key
     """
-    parts = remote_path.split('/', 1)
-    bucket = parts[0]
-    key = parts[1] if len(parts) > 1 else (os.path.basename(local_path) if local_path else "")
+    # Check if the remote path starts with the artifacts or data directory
+    if remote_path.startswith(os.environ['S3_ARTIFACTS_DIR']) or remote_path.startswith(os.environ['S3_DATA_DIR']):
+        # Use the correct bucket name from the environment variable
+        bucket = os.environ['S3_BUCKET']
+        key = remote_path
+    else:
+        # Original behavior for other paths
+        parts = remote_path.split('/', 1)
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else (os.path.basename(local_path) if local_path else "")
     return bucket, key
