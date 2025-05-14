@@ -305,7 +305,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
 @app.command()
 def predict(
     patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test'"),
-    models: List[str] = typer.Option(["all"], "--models", help="List of models to use for prediction (e.g., anno1_init112233_foldall) or 'all'"),
+    models: List[str] = typer.Option(["all"], "-m", "--models", help="List of models to use for prediction (e.g., anno1_init112233_foldall) or 'all'"),
     nb_workers: int = typer.Option(10, '-j', "--jobs", help="Number of processes to run"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging")
 ) -> None:
