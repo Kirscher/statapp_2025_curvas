@@ -97,8 +97,8 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
     os.makedirs(model_dir, exist_ok=True)
 
     # Define the expected checkpoint path
-    checkpoint_subdir = "nnUNetTrainer_Statapp__nnUNetPlans__3d_fullres/fold_all"
-    checkpoint_filename = "checkpoint_final.pth"
+    checkpoint_subdir = "nnUNetTrainer_Statapp__nnUNetPlans__3d_fullres"
+    checkpoint_filename = "fold_all/checkpoint_final.pth"
 
     # Create the local directory structure
     local_checkpoint_dir = model_dir / checkpoint_subdir
@@ -106,7 +106,8 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
 
     # Define the local and remote paths for the checkpoint file
     local_checkpoint_path = local_checkpoint_dir / checkpoint_filename
-    remote_checkpoint_path = f"{os.environ['S3_ARTIFACTS_DIR']}/{os.environ['S3_MODEL_ARTIFACTS_SUBDIR']}/{model_name}/{checkpoint_subdir}/{checkpoint_filename}"
+    remote_folder_path = f"{os.environ['S3_ARTIFACTS_DIR']}/{os.environ['S3_MODEL_ARTIFACTS_SUBDIR']}/{model_name}/{checkpoint_subdir}"
+    remote_checkpoint_path = f"{remote_folder_path}/{checkpoint_filename}"
 
     # Download the model checkpoint
     logger.info(f"Downloading model checkpoint for {model_name}...")
@@ -140,6 +141,23 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
     if not success or not local_checkpoint_path.exists():
         logger.error(f"Checkpoint file not found for model {model_name}")
         return None
+
+    # Download additional small files to run the model
+    for file in ["dataset.json", "plans.json", "fold_all/debug.json", "dataset_fingerprint.json"]:
+        local_file = f"{local_checkpoint_dir}/{file}"
+
+        success = s3_utils.download_file(
+            remote_path=f"{remote_folder_path}/{file}",
+            local_path=local_file,
+            callback=progress_callback
+        )
+
+        if not success or not Path(local_file).exists():
+            logger.error(f"Additional file {file} could not be downloaded.")
+            return None
+
+
+
 
     logger.info(f"Model checkpoint downloaded successfully for {model_name}")
     return model_dir
