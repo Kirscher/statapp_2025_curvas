@@ -717,12 +717,12 @@ def apply_metrics(l_patient_files):
         "Hausdorff_panc": hausdorff_distances["panc"],
         "Hausdorff_kidn": hausdorff_distances["kidn"],
         "Hausdorff_livr": hausdorff_distances["livr"],
-        "ECE_0": ece_scores[0],
-        "ECE_1": ece_scores[1],
-        "ECE_2": ece_scores[2],
-        "ACE_0": ace_dict[0],
-        "ACE_1": ace_dict[1],
-        "ACE_2": ace_dict[2],
+        "ECE_0": ece_scores[1],
+        "ECE_1": ece_scores[2],
+        "ECE_2": ece_scores[3],
+        "ACE_0": ace_dict[1],
+        "ACE_1": ace_dict[2],
+        "ACE_2": ace_dict[3],
         "CRPS_panc": crps_score["panc"],
         "CRPS_kidn": crps_score["kidn"],
         "CRPS_livr": crps_score["livr"],
@@ -802,7 +802,7 @@ df = pd.DataFrame(columns=[
 #Computing the metrics
 
 for f in l_patients : 
-    current_line = pd.DataFrame(apply_metrics(f))
+    current_line = pd.DataFrame([apply_metrics(f)])
     df = pd.concat([df,current_line], ignore_index=True)
 
 #Export data
