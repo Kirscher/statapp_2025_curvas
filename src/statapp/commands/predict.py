@@ -468,21 +468,15 @@ def predict(
                             # Rename the file
                             os.rename(file_path, model_output_dir / new_name)
 
-                    # Move files to patient output directory
-                    for file in os.listdir(model_output_dir):
-                        shutil.move(str(model_output_dir / file), str(patient_output_dir))
-
-                    # Remove empty model directory
-                    os.rmdir(model_output_dir)
 
                 # Upload patient results to S3
                 logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3...")
 
                 # Upload to S3_OUTPUT_DIR/UKCHLL{patient_id}
                 upload_directory_to_s3(
-                    directory=str(patient_output_dir),
+                    directory=str(patient_output_dir / model_name),
                     remote_dir_env_var="S3_OUTPUT_DIR",
-                    subfolder=f"UKCHLL{patient_id}",
+                    subfolder=f"UKCHLL{patient_id}/{model_name}",
                     verbose=verbose,
                     command_description=f"Upload prediction results for patient UKCHLL{patient_id}",
                     tracker=False
