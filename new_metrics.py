@@ -577,8 +577,6 @@ def compute_ncc(groundtruth, prob_pred):
         
         ncc_dict[f'class_{class_id}'] = ncc
 
-        
-    
     return ncc_dict
 
 """
@@ -669,31 +667,31 @@ def apply_metrics (l_patient_files):
 
     #DICE
     print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    print(f"DICE : {dice_scores}")
 
     #GT Entropy
-    #print("Computing Entropies")
-    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
+    print("Computing Entropies")
+    entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
     
     #Prediction Entropy
-    #"entropy_pred = compute_entropy(cropped_bin_pred)
-    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    entropy_pred = compute_entropy(cropped_bin_pred)
+    print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
 
     #Hausdorff Distance
-    #print("Computing Hausdorff Distance")
-    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    #print(f"Hausdorff Distances: {hausdorff_distances}")
+    print("Computing Hausdorff Distance")
+    hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
+    print(f"Hausdorff Distances: {hausdorff_distances}")
 
     #ECE
-    #print("Computing ECE")
-    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    #print(f"ECE : {ece_scores}")
+    print("Computing ECE")
+    ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
+    print(f"ECE : {ece_scores}")
 
     #ACE
-    #print("Computing ACE")
-    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    #print(f"ACE : {ace_dict}")
+    print("Computing ACE")
+    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    print(f"ACE : {ace_dict}")
     
 
     #CRPS
@@ -702,9 +700,9 @@ def apply_metrics (l_patient_files):
     print(f"CRPS : {crps_score}")
 
     #NCC
-    #print("Computing NCC")
-    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    #print(f"NCC : {ncc_dict}")
+    print("Computing NCC")
+    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
+    print(f"NCC : {ncc_dict}")
     
     #AUROC
     #print("Computing AUROC")
