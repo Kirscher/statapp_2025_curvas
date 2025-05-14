@@ -239,7 +239,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
     contents = s3_utils.list_data_directory()
 
     # Find the image file
-    image_pattern = re.compile(r'^' + re.escape(remote_dir) + r'/UKCHLL' + re.escape(patient_id) + r'_\d+_0000\.nii\.gz$')
+    image_pattern = re.compile(r'^' + re.escape(remote_dir) + r'/image\.nii\.gz$')
     image_file = None
 
     for item in contents:
