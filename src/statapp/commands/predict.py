@@ -438,7 +438,7 @@ def predict(
 
                     # Initialize predictor
                     predictor = nnUNetPredictor()
-                    checkpoint_path = model_path / "nnUNetTrainer_Statapp__nnUNetPlans__3d_fullres/fold_all"
+                    checkpoint_path = model_path / "nnUNetTrainer_Statapp__nnUNetPlans__3d_fullres"
                     predictor.initialize_from_trained_model_folder(
                         str(checkpoint_path),
                         None,
