@@ -33,6 +33,7 @@ from scipy.interpolate import interp1d
 from scipy.stats import entropy
 from scipy.spatial.distance import directed_hausdorff
 from torchmetrics.classification import MulticlassCalibrationError
+from numba import njit
 
 #FUNCTIONS
 
@@ -54,73 +55,86 @@ Metrics computation functions :
 Dice Score Evaluation
 '''
 
+@njit
+def compute_consensus_masks(groundtruth, num_organs=3):
+    """
+    Computes consensus, consensus background, and dissensus masks for all organs.
+    
+    Returns:
+        consensus: shape (3, slices, X, Y)
+        consensus_bck: same shape
+        dissensus: same shape
+    """
+    consensus = np.zeros((num_organs, groundtruth.shape[1], groundtruth.shape[2], groundtruth.shape[3]), dtype=np.uint8)
+    consensus_bck = np.zeros_like(consensus)
+    dissensus = np.zeros_like(consensus)
+
+    for i in range(num_organs):
+        organ_val = i + 1
+        for s in range(groundtruth.shape[1]):
+            for x in range(groundtruth.shape[2]):
+                for y in range(groundtruth.shape[3]):
+                    # Check consensus on foreground
+                    fg_agree = True
+                    bck_agree = True
+                    for annot in range(groundtruth.shape[0]):
+                        if groundtruth[annot, s, x, y] != organ_val:
+                            fg_agree = False
+                        if groundtruth[annot, s, x, y] == organ_val:
+                            bck_agree = False
+                    consensus[i, s, x, y] = 1 if fg_agree else 0
+                    consensus_bck[i, s, x, y] = 1 if bck_agree else 0
+                    if not fg_agree and not bck_agree:
+                        dissensus[i, s, x, y] = 1
+    return consensus, consensus_bck, dissensus
+
 def compute_consensus_dice_score(groundtruth, bin_pred, prob_pred):
     """
-    Computes an average of dice score for consensus areas only.
-    
-    groundtruth: numpy stack list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                    (3, slices, X, Y)
-    bin_pred: binarized prediction matrix containing values: {0,1,2,3}
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
-     
-    @output dice_scores, confidence
-  
+    Computes average dice score on consensus regions only.
     """
 
-    # Transform probability predictions to one-hot encoding by taking the argmax
-    prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].astype(np.uint8)
-    
-    # Split ground truth into separate organs and calculate consensus
-    organs =  {1: 'panc', 2: 'kidn', 3: 'livr'}
-    consensus = {}
-    dissensus = {}
+    # One-hot encoding of binarized predictions (shape: (4, slices, X, Y))
+    prediction_onehot = AsDiscrete(to_onehot=4)(torch.from_numpy(np.expand_dims(bin_pred, axis=0)))[1:].numpy().astype(np.uint8)
 
-    for organ_val, organ_name in organs.items():
-        # Get the ground truth for the current organ
-        organ_gt = (groundtruth == organ_val).astype(np.uint8)
-        organ_bck = (groundtruth != organ_val).astype(np.uint8)
-        
-        # Calculate consensus regions (all annotators agree)
-        consensus[organ_name] = np.logical_and.reduce(organ_gt, axis=0).astype(np.uint8)
-        consensus[f"{organ_name}_bck"] = np.logical_and.reduce(organ_bck, axis=0).astype(np.uint8)
-        
-        # Calculate dissensus regions (where both background and foreground are 0)
-        dissensus[organ_name] = np.logical_and(consensus[organ_name] == 0, 
-                                               consensus[f"{organ_name}_bck"]== 0).astype(np.uint8)
-    
-    # Mask the predictions and ground truth with the consensus areas
+    # Organ mapping
+    organs = {1: 'panc', 2: 'kidn', 3: 'livr'}
+    num_organs = 3
+
+    # Compute consensus and dissensus masks
+    consensus, consensus_bck, dissensus = compute_consensus_masks(groundtruth)
+
     predictions = {}
     groundtruth_consensus = {}
     confidence = {}
+    dice_scores = {}
 
-    for organ_val, organ_name in organs.items():
-        # Apply the dissensus mask to exclude non-consensus areas
-        filtered_prediction = prediction_onehot[organ_val-1] * (1 - dissensus[organ_name])
-        filtered_groundtruth = consensus[organ_name] * (1 - dissensus[organ_name])
-        
-        predictions[organ_name] = filtered_prediction
-        groundtruth_consensus[organ_name] = filtered_groundtruth
-        
-        # Compute mean probabilities and confidence in the consensus area
-        prob_in_consensus_organ = prob_pred[organ_val-1] * np.where(consensus[organ_name]==1, 1, np.nan)
-        prob_in_consensus_bck = prob_pred[organ_val-1] * np.where(consensus[f"{organ_name}_bck"]==1, 1, np.nan)
-        mean_conf_organ = np.nanmean(prob_in_consensus_organ)
-        mean_conf_bck = np.nanmean(prob_in_consensus_bck)        
-        confidence[organ_name] = (((1-mean_conf_bck)+mean_conf_organ)/2)
-    
-    # Create DiceMetric instance
     dice_metric = DiceMetric(include_background=False, reduction="mean", get_not_nans=False, ignore_empty=True)
 
-    dice_scores = {}
-    for organ_name in organs.values():
-        gt = torch.from_numpy(groundtruth_consensus[organ_name])
-        pred = torch.from_numpy(predictions[organ_name])
+    for i, organ_name in organs.items():
+        idx = i - 1
+
+        # Mask prediction and groundtruth using dissensus
+        pred_masked = prediction_onehot[idx] * (1 - dissensus[idx])
+        gt_masked = consensus[idx] * (1 - dissensus[idx])
+
+        predictions[organ_name] = pred_masked
+        groundtruth_consensus[organ_name] = gt_masked
+
+        # Confidence: mean probability in consensus organ and background
+        prob_organ = np.where(consensus[idx] == 1, prob_pred[idx], np.nan)
+        prob_bck = np.where(consensus_bck[idx] == 1, prob_pred[idx], np.nan)
+
+        mean_conf_organ = np.nanmean(prob_organ)
+        mean_conf_bck = np.nanmean(prob_bck)
+        confidence[organ_name] = ((1 - mean_conf_bck) + mean_conf_organ) / 2
+
+        # Compute Dice score using MONAI
         dice_metric.reset()
-        dice_metric(pred, gt)
+        gt_tensor = torch.from_numpy(gt_masked)
+        pred_tensor = torch.from_numpy(pred_masked)
+        dice_metric(pred_tensor, gt_tensor)
         dice_scores[organ_name] = dice_metric.aggregate().item()
-    
+
     return dice_scores, confidence
 
 '''
@@ -217,6 +231,7 @@ def compute_auroc(groundtruth, prob_pred):
 Area Under the Risk Curve and Expected Area Under the Risk Curve evaluation
 '''
 
+@njit
 def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], list[float], list[float]]:
     coverages = []
     selective_risks = []
@@ -226,7 +241,7 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
     idx_sorted = np.argsort(confids)
 
     coverage = n_samples
-    error_sum = sum(risks[idx_sorted])
+    error_sum = np.sum(risks[idx_sorted])
 
     coverages.append(coverage / n_samples)
     selective_risks.append(error_sum / n_samples)
@@ -244,30 +259,32 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
             tmp_weight = 0
     return coverages, selective_risks, weights
 
+@njit
 def calc_aurc(risks: np.array, confids: np.array):
     _, risks, weights = rc_curve_stats(risks, confids)
     return sum(
         [(risks[i] + risks[i + 1]) * 0.5 * weights[i] for i in range(len(weights))]
     )
 
+@njit
 def calc_eaurc(risks: np.array, confids: np.array):
     """Compute normalized AURC, i.e. subtract AURC of optimal CSF (given fixed risks)."""
     n = len(risks)
-    # optimal confidence sorts risk. Asencding here because we start from coverage 1/n
+    # optimal confidence sorts risk. Ascending here because we start from coverage 1/n
     selective_risks = np.sort(risks).cumsum() / np.arange(1, n + 1)
     aurc_opt = selective_risks.sum() / n
-    return aurc(risks, confids) - aurc_opt
+    return calc_aurc(risks, confids) - aurc_opt
 
 def compute_aurc_eaurc(groundtruth, prob_pred):
     """
     Compute AURC and EAURC for a single class in the segmentation task.
-    
+
     groundtruth: numpy array, shape (slices, X, Y)
                  Binary groundtruth segmentation mask for a specific class.
-    
+
     prob_pred: numpy array, shape (num_classes, slices, X, Y)
                Predicted probabilities for each class (output of softmax/sigmoid).
-    
+
     @output aurc_scores, eaurc_scores
     """
     aurc_scores = {}
@@ -275,7 +292,7 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
     organs = ['panc', 'kidn', 'livr']
 
     for i, organ in enumerate(organs):
-        
+
         # Flatten groundtruth and probabilities for the specific class
         gt_class = (groundtruth[i] > 0).astype(np.uint8).flatten()
         prob_class = prob_pred[i].flatten()
@@ -289,67 +306,47 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
         class_eaurc = calc_eaurc(risks, confids)
         aurc_scores[organ] = class_aurc
         eaurc_scores[organ] = class_eaurc
-    
+
     return aurc_scores, eaurc_scores
 
 '''
 Expected Calibration Error evaluation
 '''
 
-def multirater_ece(annotations_list, prob_pred):
+def multirater_ece(annotations_list, prob_pred, device='cpu'):
     """
-    Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
-    
-    annotations_list: list of length three containing the three annotations
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
-     
-    @output ece_dict
+    Compute ECE per annotation (3 in total), optimized version.
     """
-    
-    ece_dict = {1: 0, 2: 0, 3: 0}
+    with torch.no_grad():
+        annotations_tensor = torch.tensor(np.stack(annotations_list), device=device)  # shape: (3, S, X, Y)
+        prob_pred_tensor = torch.tensor(prob_pred, device=device)  # shape: (3, S, X, Y)
 
-    for i in range(3):
-        ece_dict[i+1] = calc_ece(annotations_list[i], prob_pred)
-        
-    return ece_dict
+        ece_dict = {}
 
-def calc_ece(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
+        for i in range(3):
+            ece = calc_ece_optimized(annotations_tensor[i], prob_pred_tensor)
+            ece_dict[i + 1] = ece
+
+        return ece_dict
+
+def calc_ece_optimized(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
     """
-    Computes the Expected Calibration Error (ECE) between the given annotation and the 
-    probabilistic prediction
-    
-    groundtruth: groundtruth matrix containing the following values: 1: pancreas, 2: kidney, 3: liver
-                    shape: (slices, X, Y)
-    prob_pred_onehot: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                    a probability matrix per each class
-    num_classes: number of classes
-    n_bins: number of bins                    
-                    
-    @output ece
-    """ 
-    
-    # Convert inputs to torch tensors
-    all_groundtruth = torch.tensor(groundtruth)
-    all_samples = torch.tensor(prob_pred_onehot)
-    
-    # Calculate the probability for the background class
-    background_prob = 1 - all_samples.sum(dim=0, keepdim=True)
-    
-    # Combine background probabilities with the provided probabilities
-    all_samples_with_bg = torch.cat((background_prob, all_samples), dim=0)
-    
-    # Flatten the tensors to (num_samples, num_classes) and (num_samples,)
-    all_groundtruth_flat = all_groundtruth.reshape(-1)
-    all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)
-    
-    # Initialize the calibration error metric
-    calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
+    Optimized ECE computation using torch only, no autograd, no reshaping overheads.
+    """
+    with torch.no_grad():
+        # Ensure shapes: (3, S, X, Y)
+        background_prob = 1 - prob_pred_onehot.sum(dim=0, keepdim=True)  # shape: (1, S, X, Y)
+        all_samples_with_bg = torch.cat((background_prob, prob_pred_onehot), dim=0)  # shape: (4, S, X, Y)
 
-    # Calculate the ECE
-    ece = calibration_error(all_samples_flat, all_groundtruth_flat).cpu().detach().numpy().astype(np.float64)
-    
-    return ece
+        # Flatten to (N, 4)
+        all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)  # (N, 4)
+        all_groundtruth_flat = groundtruth.reshape(-1)  # (N,)
+
+        # Metric (torchmetrics handles one-hot internally)
+        calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
+        ece = calibration_error(all_samples_flat, all_groundtruth_flat)
+
+        return float(ece.cpu().numpy())
 
 '''
 Average Calibration Error evaluation    
@@ -412,115 +409,102 @@ CRPS  evaluation
 '''
 
 def volume_metric(groundtruth, prediction, voxel_proportion=1):
-    """
-    Calculates the Continuous Ranked Probability Score (CRPS) for each volume class,
-    by using the ground truths to create a probabilistic distribution that keeps the
-    multirater information of having multiple annotations. 
-    
-    groundtruth: numpy stack list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                    (3, slices, X, Y)
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
-    voxel_proportion: vaue of the resampling needed voxel-wise, 1 by default
-     
-    @output crps_dict
-    """
-    
-    cdf_list = calculate_volumes_distributions(groundtruth, voxel_proportion)
-        
-    crps_dict = {}    
-    organs =  ['panc', 'kidn', 'livr']
+    cdf_dict, mean_gauss, var_gauss = calculate_volumes_distributions(groundtruth, voxel_proportion)
 
-    for i, organ_name in enumerate (organs, start=0):
+    crps_dict = {}
+    organs = ['panc', 'kidn', 'livr']
+
+    for i, organ_name in enumerate(organs):
         probabilistic_volume = compute_probabilistic_volume(prediction[i], voxel_proportion)
-        crps_dict[organ_name] = crps_computation(probabilistic_volume, cdf_list[organ_name], mean_gauss[organ_name], var_gauss[organ_name])
+        crps_dict[organ_name] = crps_computation_fast(
+            predicted_volume=probabilistic_volume,
+            cdf=cdf_dict[organ_name],
+            mean=mean_gauss[organ_name],
+            std_dev=var_gauss[organ_name]
+        )
 
     return crps_dict
 
-def heaviside(x):
-    return 0.5 * (np.sign(x) + 1)
-
-def crps_computation(predicted_volume, cdf, mean, std_dev):
-    """
-    Calculates the Continuous Ranked Probability Score (CRPS) for each volume class,
-    by using the ground truths to create a probabilistic distribution that keeps the
-    multirater information of having multiple annotations. 
-    
-    predicted_volume: scalar value representing the volume obtained from the 
-                        probabilistic prediction
-    cdf: cumulative density distribution (CDF) of the groundtruth volumes
-    mean: mean of the gaussian distribution obtained from the three groundtruth volumes
-    std_dev: std_dev of the gaussian distribution obtained from the three groundtruth volumes
-     
-    @output crps_dict
-    """
-    
-    def integrand(y):
-        return (cdf(y) - heaviside(y - predicted_volume)) ** 2
-    
-    lower_limit = mean - 3 * std_dev
-    upper_limit = mean + 3 * std_dev
-    
-    crps_value, _ = quad(integrand, lower_limit, upper_limit) #augmenter la limite pour de meilleurs résultats ?
-        
-    return crps_value
 
 def calculate_volumes_distributions(groundtruth, voxel_proportion=1):
     """
-    Calculates the Cumulative Distribution Function (CDF) of the Probabilistic Function Distribution (PDF)
-    obtained by calcuating the mean and the variance of considering the three annotations.
-    
-    groundtruth: numpy stack list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                    (3, slices, X, Y)
-    voxel_proportion: vaue of the resampling needed voxel-wise, 1 by default
-    
-    @output cdfs_dict
+    From multiple GT annotations, compute volume stats and Gaussian CDF approximations.
     """
-    
     organs = {1: 'panc', 2: 'kidn', 3: 'livr'}
-    
-    global mean_gauss, var_gauss, volumes  # Make them global to access in crps
+
+    volumes = {}
     mean_gauss = {}
     var_gauss = {}
-    volumes = {}
 
     for organ_val, organ_name in organs.items():
-        volumes[organ_name] = [np.unique(gt, return_counts=True)[1][organ_val] * np.prod(voxel_proportion) for gt in groundtruth]
-        mean_gauss[organ_name] = np.mean(volumes[organ_name])
-        var_gauss[organ_name] = np.std(volumes[organ_name])
+        vols = []
+        for gt in groundtruth:
+            count = np.sum(gt == organ_val)
+            vols.append(count * np.prod(voxel_proportion))
+        volumes[organ_name] = vols
+        mean_gauss[organ_name] = np.mean(vols)
+        var_gauss[organ_name] = np.std(vols)
 
-    # Create normal distribution objects
-    gaussian_dists = {organ_name: norm(loc=mean_gauss[organ_name], scale=var_gauss[organ_name]) for organ_name in organs.values()}
-    
-    # Generate CDFs
+    # Build CDFs using normal approximation (interpolated)
     cdfs = {}
     for organ_name in organs.values():
-        x = np.linspace(gaussian_dists[organ_name].ppf(0.01), gaussian_dists[organ_name].ppf(0.99), 100)
-        cdf_values = gaussian_dists[organ_name].cdf(x)
-        cdfs[organ_name] = interp1d(x, cdf_values, bounds_error=False, fill_value=(0, 1))  # Create an interpolation function
+        mean = mean_gauss[organ_name]
+        std = var_gauss[organ_name]
+        x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
+        cdf_vals = 0.5 * (1 + erf_vectorized((x - mean) / (std * np.sqrt(2))))
+        cdfs[organ_name] = interp1d(x, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
 
-    return cdfs
-    
-    
+    return cdfs, mean_gauss, var_gauss
+
+
 def compute_probabilistic_volume(preds, voxel_proportion=1):
     """
-    Computes the volume of the matrix given (either pancreas, kidney or liver)
-    by adding up all the probabilities in this matrix. This way the uncertainty plays
-    a role in the computation of the predicted organ. If there is no uncertainty, the 
-    volume should be close to the mean obtained by averaging the three annotations.
-    
-    preds: probabilistic matrix of a specific organ
-    voxel_proportion: vaue of the resampling needed voxel-wise, 1 by default
-     
-    @output volume
+    Compute the soft volume from probabilistic segmentation (expected volume).
     """
-    
-    # Sum the predicted probabilities to get the volume
     volume = preds.sum().item()
-    
-    return volume*voxel_proportion
+    return volume * voxel_proportion
+
+
+def crps_computation_fast(predicted_volume, cdf, mean, std_dev, num_points=500):
+    """
+    CRPS approximation using trapezoidal integration and JIT-accelerated heaviside.
+    """
+    lower_limit = mean - 4 * std_dev
+    upper_limit = mean + 4 * std_dev
+
+    x = np.linspace(lower_limit, upper_limit, num_points)
+    cdf_values = cdf(x)
+    heaviside_values = heaviside_vectorized(x - predicted_volume)
+
+    integrand = (cdf_values - heaviside_values) ** 2
+    crps_value = np.trapz(integrand, x)
+
+    return crps_value
+
+
+@njit
+def heaviside_vectorized(x):
+    """
+    Numba-accelerated Heaviside step function.
+    """
+    return 0.5 * (np.sign(x) + 1.0)
+
+@njit
+def erf_vectorized(x):
+    """
+    Numba-accelerated error function approximation.
+    Equivalent to scipy.special.erf, needed for CDF of normal.
+    """
+    # Abramowitz and Stegun formula 7.1.26 for erf(x)
+    a1, a2, a3, a4, a5 = 0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429
+    p = 0.3275911
+
+    sign = np.sign(x)
+    x = np.abs(x)
+    t = 1.0 / (1.0 + p * x)
+    y = 1.0 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * np.exp(-x * x)
+
+    return sign * y
 
 '''
 NCC
@@ -583,18 +567,19 @@ def compute_ncc(groundtruth, prob_pred):
         sigma_pred = np.std(entropy_map, ddof=1)
 
         # Handle cases where standard deviation is zero
-    
-        gt_norm = gt_unc_map - mu_gt
-        pred_norm = entropy_map - mu_pred
-        prod = np.sum(gt_norm * pred_norm)
-        ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
+        if sigma_gt == 0 or sigma_pred == 0:
+            print(f"Class {class_id} - NCC: Skipping, zero variance")
+            ncc = 0.0
+        else:
+            gt_norm = gt_unc_map - mu_gt
+            pred_norm = entropy_map - mu_pred
+            prod = np.sum(gt_norm * pred_norm)
+            ncc = (1 / (np.size(gt_unc_map) * sigma_gt * sigma_pred)) * prod
 
         # Store NCC for this class
         
         ncc_dict[f'class_{class_id}'] = ncc
 
-        
-    
     return ncc_dict
 
 """
@@ -603,39 +588,28 @@ Preprocessing functions :
 - preprocess_results (cropping)
 """
 
-def preprocess_results(ct_image, annotations, results):
+def compute_patient_crop_box(annotations):
     """
-    Preprocess the images, predictions and annotations in order to be evaluated.
-    It crops the foreground and applies the same crop to the rest of matrices.
-    This is done to save some memory and work with smaller matrices.
-    
-    ct_image: CT images of shape (slices, X, Y)
-    annotations: list containing the three ground truths [gt1, gt2, gt3]
-                 each gt has the following values: 1: pancreas, 2: kidney, 3: liver
-                 each gt has the following shape (slices, X, Y)
-    results: list containing the results [binarized prediction, 
-                                          pancreas_confidence,
-                                          kidney_confidence,
-                                          liver_confidence
-                                         ]
-            the binarized prediction the following values: 1: pancreas, 2: kidney, 3: liver
-            each confidence has probabilistic values that range from 0 to 1
-     
-    @output cropped_annotations, cropped_results[0], cropped_results[1:]
-  
+    Calcule la bounding box du foreground (zones annotées) sur toutes les annotations.
     """
+    # Union des 3 annotations
+    union_mask = np.sum(np.stack(annotations, axis=0), axis=0) > 0
 
-    # Define the CropForeground transform
-    cropper = CropForeground(select_fn=lambda x: x > 0)  # Assuming non-zero voxels are foreground
+    # Create a MONAI cropper
+    cropper = CropForeground(select_fn=lambda x: x > 0, allow_smaller=True)
+    box_start, box_end = cropper.compute_bounding_box(union_mask.astype(np.uint8))
 
-    # Compute the cropping box based on the CT image
-    box_start, box_end = cropper.compute_bounding_box(ct_image)
-    
-    # Apply the cropping box to all annotations
-    cropped_annotations = [annotation[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for annotation in annotations]
-    cropped_results = [result[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for result in results]
+    return box_start, box_end
 
+
+def preprocess_results(ct_image, annotations, results, box_start, box_end):
+    """
+    Utilise une bounding box prédéfinie pour croper toutes les images du patient.
+    """
+    cropped_annotations = [a[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for a in annotations]
+    cropped_results = [r[..., box_start[0]:box_end[0], box_start[1]:box_end[1]] for r in results]
     return cropped_annotations, cropped_results[0], cropped_results[1:]
+
 
 def sitk_to_array(sitk_img):
     """ Convert SimpleITK image to numpy array with shape (slices, H, W) """
@@ -676,73 +650,101 @@ def files_to_data(result_file, prob_file, gt_folder):
 Applying the metrics to the inputed data
 '''
 
-def apply_metrics (l_patient_files):
+from concurrent.futures import ProcessPoolExecutor
+
+# === WRAPPERS FOR PARALLELIZATION ===
+def compute_dice_parallel(args):
+    return compute_consensus_dice_score(*args)
+
+def compute_ece_parallel(args):
+    return multirater_ece(*args)
+
+def compute_crps_parallel(args):
+    return volume_metric(*args)
+
+def compute_fast_metrics_parallel(args):
+    annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred = args
+
+    entropy_gt = compute_entropy(annotations_stack)
+    entropy_pred = compute_entropy(cropped_bin_pred)
+    hausdorff_distances = compute_hausdorff_distances(cropped_annotations, cropped_bin_pred)
+    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    ncc_dict = compute_ncc(cropped_annotations, cropped_prob_pred)
+
+    return entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict
+
+
+# TODO il faut ajouter AURC et EAURC
+def apply_metrics(l_patient_files):
     '''
-    Apply all the metrics.
-    l_patient_files : dict of file paths : {"pred" : path_to/result.nii.gz", "prob" : "path_to/result.npz" (containing the probabilities), "gt" : "path_to/GT_patient folder" (containing the 3 annotations and the raw image)}
-
+    Apply selected metrics with simple and clear parallelization.
     '''
-    #extracting patient ID
-    ct_name=re.findall(r"\/([^\/]+)$",l_patient_files["gt"])
+    # Extract patient ID
+    ct_name = re.findall(r"\/([^\/]+)$", l_patient_files["gt"])[0]
 
-    #from files to data
-    ct_image, annotations, results = files_to_data(l_patient_files["pred"], l_patient_files["prob"], l_patient_files["gt"])
+    # Load and preprocess data
+    ct_image, annotations, results = files_to_data(
+        l_patient_files["pred"], l_patient_files["prob"], l_patient_files["gt"]
+    )
+    box_start, box_end = compute_patient_crop_box(annotations)
+    cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(
+        ct_image, annotations, results, box_start, box_end
+    )
 
-    #preprocess the data
-    cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results)
-    
-    #DICE
-    print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    annotations_stack = np.stack(cropped_annotations, axis=0)
 
-    #GT Entropy
-    print("Computing Entropies")
-    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
-    
-    #Prediction Entropy
-    #entropy_pred = compute_entropy(cropped_bin_pred)
-    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    # Prepare arguments
+    args_dice = (annotations_stack, cropped_bin_pred, cropped_prob_pred)
+    args_ece = (cropped_annotations, cropped_prob_pred)
+    args_crps = (annotations_stack, cropped_prob_pred)
+    args_fast = (annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred)
 
-    #Hausdorff Distance
-    print("Computing Hausdorff Distance")
-    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    #print(f"Hausdorff Distances: {hausdorff_distances}")
+    # Parallel computation
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        future_dice = executor.submit(compute_dice_parallel, args_dice)
+        future_ece = executor.submit(compute_ece_parallel, args_ece)
+        future_crps = executor.submit(compute_crps_parallel, args_crps)
+        future_fast = executor.submit(compute_fast_metrics_parallel, args_fast)
 
-    #ECE
-    print("Computing ECE")
-    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    #print(f"ECE : {ece_scores}")
+        dice_scores = future_dice.result()
+        print(f"[{ct_name}] DICE: {dice_scores}")
 
-    #ACE
-    print("Computing ACE")
-    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    #print(f"ACE : {ace_dict}")
-    
+        ece_scores = future_ece.result()
+        print(f"[{ct_name}] ECE: {ece_scores}")
 
-    #CRPS
-    print("Computing CRPS")
-    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"CRPS : {crps_score}")
+        crps_score = future_crps.result()
+        print(f"[{ct_name}] CRPS: {crps_score}")
 
-    #NCC
-    print("Computing NCC")
-    ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    print(f"NCC : {ncc_dict}")
-    
-    #AUROC
-    print("Computing AUROC")
-    #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AUROC: {auroc_scores}")
+        entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict = future_fast.result()
+        print(f"[{ct_name}] Entropy_GT: {entropy_gt}, Entropy_Pred: {entropy_pred}")
+        print(f"[{ct_name}] Hausdorff: {hausdorff_distances}")
+        print(f"[{ct_name}] ACE: {ace_dict}")
+        print(f"[{ct_name}] NCC: {ncc_dict}")
 
-    #AURC and EAURC
-    print("Computing AURC and EAURC")
-    #aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AURC: {aurc_scores}")
-    #print(f"EAURC: {eaurc_scores}")
-    
+    # Return results
+    return {
+        "CT": ct_name,
+        "DICE_panc": dice_scores[0],
+        "DICE_kidn": dice_scores[1],
+        "DICE_livr": dice_scores[2],
+        "Entropy_GT": entropy_gt,
+        "Entropy_Pred": entropy_pred,
+        "Hausdorff_panc": hausdorff_distances["panc"],
+        "Hausdorff_kidn": hausdorff_distances["kidn"],
+        "Hausdorff_livr": hausdorff_distances["livr"],
+        "ECE_0": ece_scores[0],
+        "ECE_1": ece_scores[1],
+        "ECE_2": ece_scores[2],
+        "ACE_0": ace_dict[0],
+        "ACE_1": ace_dict[1],
+        "ACE_2": ace_dict[2],
+        "CRPS_panc": crps_score["panc"],
+        "CRPS_kidn": crps_score["kidn"],
+        "CRPS_livr": crps_score["livr"],
+        "NCC": ncc_dict,
+    }
 
-    return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}
+
 
 
 #BODY
