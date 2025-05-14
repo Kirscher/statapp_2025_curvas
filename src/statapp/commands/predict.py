@@ -143,7 +143,7 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
         return None
 
     # Download additional small files to run the model
-    for file in ["dataset.json", "plans.json", "fold_all/debug.json", "dataset_fingerprint.json"]:
+    for file in ["dataset.json", "plans.json"]:
         local_file = f"{local_checkpoint_dir}/{file}"
 
         success = s3_utils.download_file(
