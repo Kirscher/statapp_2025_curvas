@@ -20,7 +20,8 @@ def upload_directory_to_s3(
     remote_dir_env_var: str,
     subfolder: str = "",
     verbose: bool = False,
-    command_description: str = "Upload files to S3"
+    command_description: str = "Upload files to S3",
+    tracker: bool = True
 ) -> None:
     """
     Upload a local directory to an S3 folder.
@@ -102,27 +103,35 @@ def upload_directory_to_s3(
 
         try:
             # Start tracking progress for this file
-            tracker.start_file(local_file_path, display_path, file_size)
+            if tracker:
+                tracker.start_file(local_file_path, display_path, file_size)
 
             # Record start time
             start_time = time.time()
 
             # Create a callback function for progress updates that's compatible with boto3
             def update_progress(bytes_transferred: int) -> None:
-                tracker.update_file_progress(bytes_transferred, file_size, display_path, start_time)
+                if tracker:
+                    tracker.update_file_progress(bytes_transferred, file_size, display_path, start_time)
 
             # Upload the file with progress tracking using boto3
             s3_utils.upload_file(str(local_file_path), remote_path, callback=update_progress)
 
             # Mark file as completed
-            tracker.complete_file(display_path, file_size, start_time)
+            if tracker:
+                tracker.complete_file(display_path, file_size, start_time)
 
         except Exception as e:
             logger.error(f"Error uploading {local_file_path}: {str(e)}")
-            tracker.complete_file(display_path, file_size, time.time(), success=False)
+            if tracker:
+                tracker.complete_file(display_path, file_size, time.time(), success=False)
 
     # Track progress of uploading files
-    track_progress(all_files, get_file_size, process_file)
+    if tracker:
+        track_progress(all_files, get_file_size, process_file)
+    else:
+        for file in all_files:
+            process_file(file, None)
 
     # Display completion message
     success_text = Text.assemble(

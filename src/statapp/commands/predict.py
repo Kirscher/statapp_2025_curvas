@@ -484,7 +484,8 @@ def predict(
                     remote_dir_env_var="S3_OUTPUT_DIR",
                     subfolder=f"UKCHLL{patient_id}",
                     verbose=verbose,
-                    command_description=f"Upload prediction results for patient UKCHLL{patient_id}"
+                    command_description=f"Upload prediction results for patient UKCHLL{patient_id}",
+                    tracker=False
                 )
 
                 # Mark patient as completed
