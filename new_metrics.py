@@ -231,6 +231,7 @@ def compute_auroc(groundtruth, prob_pred):
 Area Under the Risk Curve and Expected Area Under the Risk Curve evaluation
 '''
 
+@njit
 def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], list[float], list[float]]:
     coverages = []
     selective_risks = []
@@ -240,7 +241,7 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
     idx_sorted = np.argsort(confids)
 
     coverage = n_samples
-    error_sum = sum(risks[idx_sorted])
+    error_sum = np.sum(risks[idx_sorted])
 
     coverages.append(coverage / n_samples)
     selective_risks.append(error_sum / n_samples)
@@ -258,30 +259,32 @@ def rc_curve_stats(risks: np.array, confids: np.array) -> tuple[list[float], lis
             tmp_weight = 0
     return coverages, selective_risks, weights
 
+@njit
 def calc_aurc(risks: np.array, confids: np.array):
     _, risks, weights = rc_curve_stats(risks, confids)
     return sum(
         [(risks[i] + risks[i + 1]) * 0.5 * weights[i] for i in range(len(weights))]
     )
 
+@njit
 def calc_eaurc(risks: np.array, confids: np.array):
     """Compute normalized AURC, i.e. subtract AURC of optimal CSF (given fixed risks)."""
     n = len(risks)
-    # optimal confidence sorts risk. Asencding here because we start from coverage 1/n
+    # optimal confidence sorts risk. Ascending here because we start from coverage 1/n
     selective_risks = np.sort(risks).cumsum() / np.arange(1, n + 1)
     aurc_opt = selective_risks.sum() / n
-    return aurc(risks, confids) - aurc_opt
+    return calc_aurc(risks, confids) - aurc_opt
 
 def compute_aurc_eaurc(groundtruth, prob_pred):
     """
     Compute AURC and EAURC for a single class in the segmentation task.
-    
+
     groundtruth: numpy array, shape (slices, X, Y)
                  Binary groundtruth segmentation mask for a specific class.
-    
+
     prob_pred: numpy array, shape (num_classes, slices, X, Y)
                Predicted probabilities for each class (output of softmax/sigmoid).
-    
+
     @output aurc_scores, eaurc_scores
     """
     aurc_scores = {}
@@ -289,7 +292,7 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
     organs = ['panc', 'kidn', 'livr']
 
     for i, organ in enumerate(organs):
-        
+
         # Flatten groundtruth and probabilities for the specific class
         gt_class = (groundtruth[i] > 0).astype(np.uint8).flatten()
         prob_class = prob_pred[i].flatten()
@@ -303,7 +306,7 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
         class_eaurc = calc_eaurc(risks, confids)
         aurc_scores[organ] = class_aurc
         eaurc_scores[organ] = class_eaurc
-    
+
     return aurc_scores, eaurc_scores
 
 '''
@@ -647,76 +650,99 @@ def files_to_data(result_file, prob_file, gt_folder):
 Applying the metrics to the inputed data
 '''
 
-def apply_metrics (l_patient_files):
+from concurrent.futures import ProcessPoolExecutor
+
+# === WRAPPERS FOR PARALLELIZATION ===
+def compute_dice_parallel(args):
+    return compute_consensus_dice_score(*args)
+
+def compute_ece_parallel(args):
+    return multirater_ece(*args)
+
+def compute_crps_parallel(args):
+    return volume_metric(*args)
+
+def compute_fast_metrics_parallel(args):
+    annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred = args
+
+    entropy_gt = compute_entropy(annotations_stack)
+    entropy_pred = compute_entropy(cropped_bin_pred)
+    hausdorff_distances = compute_hausdorff_distances(cropped_annotations, cropped_bin_pred)
+    ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
+    ncc_dict = compute_ncc(cropped_annotations, cropped_prob_pred)
+
+    return entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict
+
+
+# TODO il faut ajouter AURC et EAURC
+def apply_metrics(l_patient_files):
     '''
-    Apply all the metrics.
-    l_patient_files : dict of file paths : {"pred" : path_to/result.nii.gz", "prob" : "path_to/result.npz" (containing the probabilities), "gt" : "path_to/GT_patient folder" (containing the 3 annotations and the raw image)}
-
+    Apply selected metrics with simple and clear parallelization.
     '''
-    #extracting patient ID
-    ct_name = re.findall(r"\/([^\/]+)$", l_patient_files["gt"])
+    # Extract patient ID
+    ct_name = re.findall(r"\/([^\/]+)$", l_patient_files["gt"])[0]
 
-    #from files to data
-    ct_image, annotations, results = files_to_data(l_patient_files["pred"], l_patient_files["prob"], l_patient_files["gt"])
-
-    # compute crop box once based on union of annotations
+    # Load and preprocess data
+    ct_image, annotations, results = files_to_data(
+        l_patient_files["pred"], l_patient_files["prob"], l_patient_files["gt"]
+    )
     box_start, box_end = compute_patient_crop_box(annotations)
+    cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(
+        ct_image, annotations, results, box_start, box_end
+    )
 
-    # preprocess the data
-    cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results, box_start, box_end)
+    annotations_stack = np.stack(cropped_annotations, axis=0)
 
-    #DICE
-    #print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    # Prepare arguments
+    args_dice = (annotations_stack, cropped_bin_pred, cropped_prob_pred)
+    args_ece = (cropped_annotations, cropped_prob_pred)
+    args_crps = (annotations_stack, cropped_prob_pred)
+    args_fast = (annotations_stack, cropped_annotations, cropped_bin_pred, cropped_prob_pred)
 
-    #GT Entropy
-    #print("Computing Entropies")
-    #entropy_gt = compute_entropy(np.stack(cropped_annotations, axis=0))
-    
-    #Prediction Entropy
-    #entropy_pred = compute_entropy(cropped_bin_pred)
-    #print(f"Entropy GT: {entropy_gt}, Entropy Pred: {entropy_pred}")
+    # Parallel computation
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        future_dice = executor.submit(compute_dice_parallel, args_dice)
+        future_ece = executor.submit(compute_ece_parallel, args_ece)
+        future_crps = executor.submit(compute_crps_parallel, args_crps)
+        future_fast = executor.submit(compute_fast_metrics_parallel, args_fast)
 
-    #Hausdorff Distance
-    #print("Computing Hausdorff Distance")
-    #hausdorff_distances=compute_hausdorff_distances(cropped_annotations,cropped_bin_pred)
-    #print(f"Hausdorff Distances: {hausdorff_distances}")
+        dice_scores = future_dice.result()
+        print(f"[{ct_name}] DICE: {dice_scores}")
 
-    #ECE
-    #print("Computing ECE")
-    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    #print(f"ECE : {ece_scores}")
+        ece_scores = future_ece.result()
+        print(f"[{ct_name}] ECE: {ece_scores}")
 
-    #ACE
-    #print("Computing ACE")
-    #ace_dict = multirater_ace(cropped_annotations, cropped_bin_pred, cropped_prob_pred)
-    #print(f"ACE : {ace_dict}")
-    
+        crps_score = future_crps.result()
+        print(f"[{ct_name}] CRPS: {crps_score}")
 
-    #CRPS
-    #print("Computing CRPS")
-    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"CRPS : {crps_score}")
+        entropy_gt, entropy_pred, hausdorff_distances, ace_dict, ncc_dict = future_fast.result()
+        print(f"[{ct_name}] Entropy_GT: {entropy_gt}, Entropy_Pred: {entropy_pred}")
+        print(f"[{ct_name}] Hausdorff: {hausdorff_distances}")
+        print(f"[{ct_name}] ACE: {ace_dict}")
+        print(f"[{ct_name}] NCC: {ncc_dict}")
 
-    #NCC
-    #print("Computing NCC")
-    #ncc_dict = compute_ncc(cropped_annotations,cropped_prob_pred)
-    #print(f"NCC : {ncc_dict}")
-    
-    #AUROC
-    #print("Computing AUROC")
-    #auroc_scores = compute_auroc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"AUROC: {auroc_scores}")
-
-    #AURC and EAURC
-    print("Computing AURC and EAURC")
-    aurc_scores, eaurc_scores = compute_aurc_eaurc(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    print(f"AURC: {aurc_scores}")
-    print(f"EAURC: {eaurc_scores}")
-    
-
-    return {"CT" : ct_name, "DICE_panc" : dice_scores['panc'], "DICE_kidn" : dice_scores['kidn'], "DICE_livr" : dice_scores['livr'], "Entropy_GT" : entropy_gt, "Entropy_Pred" : entropy_pred, "Hausdorff_panc" : hausdorff_distances['panc'], "Hausdorff_kidn" : hausdorff_distances['kidn'], "Hausdorff_livr" : hausdorff_distances['livr'], "AUROC_panc" : auroc_scores["panc"], "AUROC_kidn" : auroc_scores["kidn"], "AUROC_livr" : auroc_scores["livr"], "AURC_panc" : aurc_scores["panc"], "AURC_kidn" : aurc_scores["kidn"], "AURC_livr" : aurc_scores["livr"], "EAURC_panc": eaurc_scores["panc"], "EAURC_kidn" : eaurc_scores["kidn"], "EAURC_livr" : eaurc_scores["livr"], "ECE_0" : ece_scores[0], "ECE_1" : ece_scores[1], "ECE_2" : ece_scores[2], "ACE_0" : ace_dict[0], "ACE_1" : ace_dict[1], "ACE_2" : ace_dict[2], "CRPS_panc" : crps_score['panc'], "CRPS_kidn" : crps_score['kidn'], "CRPS_livr" : crps_score['livr'], "NCC" : ncc_score}
+    # Return results
+    return {
+        "CT": ct_name,
+        "DICE_panc": dice_scores[0],
+        "DICE_kidn": dice_scores[1],
+        "DICE_livr": dice_scores[2],
+        "Entropy_GT": entropy_gt,
+        "Entropy_Pred": entropy_pred,
+        "Hausdorff_panc": hausdorff_distances["panc"],
+        "Hausdorff_kidn": hausdorff_distances["kidn"],
+        "Hausdorff_livr": hausdorff_distances["livr"],
+        "ECE_0": ece_scores[0],
+        "ECE_1": ece_scores[1],
+        "ECE_2": ece_scores[2],
+        "ACE_0": ace_dict[0],
+        "ACE_1": ace_dict[1],
+        "ACE_2": ace_dict[2],
+        "CRPS_panc": crps_score["panc"],
+        "CRPS_kidn": crps_score["kidn"],
+        "CRPS_livr": crps_score["livr"],
+        "NCC": ncc_dict,
+    }
 
 
 
