@@ -11,6 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import List, Union, Literal, Optional
+import threading
 
 import typer
 from rich.text import Text
@@ -469,18 +470,25 @@ def predict(
                             os.rename(file_path, model_output_dir / new_name)
 
 
-                # Upload patient results to S3
-                logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3...")
 
                 # Upload to S3_OUTPUT_DIR/UKCHLL{patient_id}
-                upload_directory_to_s3(
-                    directory=str(patient_output_dir / model_name),
-                    remote_dir_env_var="S3_OUTPUT_DIR",
-                    subfolder=f"UKCHLL{patient_id}/{model_name}",
-                    verbose=verbose,
-                    command_description=f"Upload prediction results for patient UKCHLL{patient_id}",
-                    tracker=False
-                )
+                def upload():
+                    logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3 in the background.")
+
+                    upload_directory_to_s3(
+                        directory=str(patient_output_dir / model_name),
+                        remote_dir_env_var="S3_OUTPUT_DIR",
+                        subfolder=f"UKCHLL{patient_id}/{model_name}",
+                        verbose=verbose,
+                        command_description=f"Upload prediction results for patient UKCHLL{patient_id}",
+                        tracker=False
+                    )
+
+                    logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3 done!")
+                
+
+                upload_thread = threading.Thread(target=upload, name="Downloader", args=())
+                upload_thread.start()
 
                 # Mark patient as completed
                 progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id}", 1, time.time(), success=True)
