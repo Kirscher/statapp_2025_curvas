@@ -1,4 +1,3 @@
-#old version
 """
 This code aims at computing metrics for nnUNet segmentation predictions. It has 3 parts : 
 -Imports
@@ -34,6 +33,7 @@ from scipy.interpolate import interp1d
 from scipy.stats import entropy
 from scipy.spatial.distance import directed_hausdorff
 from torchmetrics.classification import MulticlassCalibrationError
+from numba import njit
 
 #FUNCTIONS
 
@@ -297,60 +297,40 @@ def compute_aurc_eaurc(groundtruth, prob_pred):
 Expected Calibration Error evaluation
 '''
 
-def multirater_ece(annotations_list, prob_pred):
+def multirater_ece(annotations_list, prob_pred, device='cpu'):
     """
-    Returns a list of length three of the Expected Calibration Error (ECE) per annotation.
-    
-    annotations_list: list of length three containing the three annotations
-    prob_pred: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                a probability matrix per each class
-     
-    @output ece_dict
+    Compute ECE per annotation (3 in total), optimized version.
     """
-    
-    ece_dict = {1: 0, 2: 0, 3: 0}
+    with torch.no_grad():
+        annotations_tensor = torch.tensor(np.stack(annotations_list), device=device)  # shape: (3, S, X, Y)
+        prob_pred_tensor = torch.tensor(prob_pred, device=device)  # shape: (3, S, X, Y)
 
-    for i in range(3):
-        ece_dict[i+1] = calc_ece(annotations_list[i], prob_pred)
-        
-    return ece_dict
+        ece_dict = {}
 
-def calc_ece(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
+        for i in range(3):
+            ece = calc_ece_optimized(annotations_tensor[i], prob_pred_tensor)
+            ece_dict[i + 1] = ece
+
+        return ece_dict
+
+def calc_ece_optimized(groundtruth, prob_pred_onehot, num_classes=4, n_bins=50):
     """
-    Computes the Expected Calibration Error (ECE) between the given annotation and the 
-    probabilistic prediction
-    
-    groundtruth: groundtruth matrix containing the following values: 1: pancreas, 2: kidney, 3: liver
-                    shape: (slices, X, Y)
-    prob_pred_onehot: probability prediction matrix, shape: (3, slices, X, Y), the three being
-                    a probability matrix per each class
-    num_classes: number of classes
-    n_bins: number of bins                    
-                    
-    @output ece
-    """ 
-    
-    # Convert inputs to torch tensors
-    all_groundtruth = torch.tensor(groundtruth)
-    all_samples = torch.tensor(prob_pred_onehot)
-    
-    # Calculate the probability for the background class
-    background_prob = 1 - all_samples.sum(dim=0, keepdim=True)
-    
-    # Combine background probabilities with the provided probabilities
-    all_samples_with_bg = torch.cat((background_prob, all_samples), dim=0)
-    
-    # Flatten the tensors to (num_samples, num_classes) and (num_samples,)
-    all_groundtruth_flat = all_groundtruth.reshape(-1)
-    all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)
-    
-    # Initialize the calibration error metric
-    calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
+    Optimized ECE computation using torch only, no autograd, no reshaping overheads.
+    """
+    with torch.no_grad():
+        # Ensure shapes: (3, S, X, Y)
+        background_prob = 1 - prob_pred_onehot.sum(dim=0, keepdim=True)  # shape: (1, S, X, Y)
+        all_samples_with_bg = torch.cat((background_prob, prob_pred_onehot), dim=0)  # shape: (4, S, X, Y)
 
-    # Calculate the ECE
-    ece = calibration_error(all_samples_flat, all_groundtruth_flat).cpu().detach().numpy().astype(np.float64)
-    
-    return ece
+        # Flatten to (N, 4)
+        all_samples_flat = all_samples_with_bg.permute(1, 2, 3, 0).reshape(-1, num_classes)  # (N, 4)
+        all_groundtruth_flat = groundtruth.reshape(-1)  # (N,)
+
+        # Metric (torchmetrics handles one-hot internally)
+        calibration_error = MulticlassCalibrationError(num_classes=num_classes, n_bins=n_bins)
+        ece = calibration_error(all_samples_flat, all_groundtruth_flat)
+
+        return float(ece.cpu().numpy())
 
 '''
 Average Calibration Error evaluation    
@@ -597,7 +577,7 @@ def compute_patient_crop_box(annotations):
     union_mask = np.sum(np.stack(annotations, axis=0), axis=0) > 0
 
     # Create a MONAI cropper
-    cropper = CropForeground(select_fn=lambda x: x > 0)
+    cropper = CropForeground(select_fn=lambda x: x > 0, allow_smaller=True)
     box_start, box_end = cropper.compute_bounding_box(union_mask.astype(np.uint8))
 
     return box_start, box_end
@@ -670,9 +650,9 @@ def apply_metrics (l_patient_files):
     cropped_annotations, cropped_bin_pred, cropped_prob_pred = preprocess_results(ct_image, annotations, results, box_start, box_end)
 
     #DICE
-    #print( "Computing DICE")
-    #dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
-    #print(f"DICE : {dice_scores}")
+    print( "Computing DICE")
+    dice_scores, confidence = compute_consensus_dice_score(np.stack(cropped_annotations, axis=0), cropped_bin_pred, cropped_prob_pred)
+    print(f"DICE : {dice_scores}")
 
     #GT Entropy
     #print("Computing Entropies")
@@ -688,9 +668,9 @@ def apply_metrics (l_patient_files):
     #print(f"Hausdorff Distances: {hausdorff_distances}")
 
     #ECE
-    print("Computing ECE")
-    ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
-    print(f"ECE : {ece_scores}")
+    #print("Computing ECE")
+    #ece_scores = multirater_ece(cropped_annotations, cropped_prob_pred)
+    #print(f"ECE : {ece_scores}")
 
     #ACE
     #print("Computing ACE")
