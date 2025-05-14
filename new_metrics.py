@@ -407,51 +407,26 @@ CRPS  evaluation
 
 def volume_metric(groundtruth, prediction, voxel_proportion=1):
     cdf_dict, mean_gauss, var_gauss = calculate_volumes_distributions(groundtruth, voxel_proportion)
-    
+
     crps_dict = {}
     organs = ['panc', 'kidn', 'livr']
 
     for i, organ_name in enumerate(organs):
         probabilistic_volume = compute_probabilistic_volume(prediction[i], voxel_proportion)
-        crps_dict[organ_name] = crps_computation(
-            probabilistic_volume,
-            cdf_dict[organ_name],
-            mean_gauss[organ_name],
-            var_gauss[organ_name]
+        crps_dict[organ_name] = crps_computation_fast(
+            predicted_volume=probabilistic_volume,
+            cdf=cdf_dict[organ_name],
+            mean=mean_gauss[organ_name],
+            std_dev=var_gauss[organ_name]
         )
 
     return crps_dict
 
 
-def heaviside(x):
-    return 0.5 * (np.sign(x) + 1)
-
-def crps_computation(predicted_volume, cdf, mean, std_dev):
-    """
-    Calculates the Continuous Ranked Probability Score (CRPS) for each volume class,
-    by using the ground truths to create a probabilistic distribution that keeps the
-    multirater information of having multiple annotations. 
-    
-    predicted_volume: scalar value representing the volume obtained from the 
-                        probabilistic prediction
-    cdf: cumulative density distribution (CDF) of the groundtruth volumes
-    mean: mean of the gaussian distribution obtained from the three groundtruth volumes
-    std_dev: std_dev of the gaussian distribution obtained from the three groundtruth volumes
-     
-    @output crps_dict
-    """
-    
-    def integrand(y):
-        return (cdf(y) - heaviside(y - predicted_volume)) ** 2
-    
-    lower_limit = mean - 3 * std_dev
-    upper_limit = mean + 3 * std_dev
-    
-    crps_value, _ = quad(integrand, lower_limit, upper_limit) #augmenter la limite pour de meilleurs résultats ?
-        
-    return crps_value
-
 def calculate_volumes_distributions(groundtruth, voxel_proportion=1):
+    """
+    From multiple GT annotations, compute volume stats and Gaussian CDF approximations.
+    """
     organs = {1: 'panc', 2: 'kidn', 3: 'livr'}
 
     volumes = {}
@@ -459,44 +434,74 @@ def calculate_volumes_distributions(groundtruth, voxel_proportion=1):
     var_gauss = {}
 
     for organ_val, organ_name in organs.items():
-        vols = [np.unique(gt, return_counts=True)[1][organ_val] * np.prod(voxel_proportion) for gt in groundtruth]
+        vols = []
+        for gt in groundtruth:
+            count = np.sum(gt == organ_val)
+            vols.append(count * np.prod(voxel_proportion))
         volumes[organ_name] = vols
         mean_gauss[organ_name] = np.mean(vols)
         var_gauss[organ_name] = np.std(vols)
 
-    # Create normal distribution objects
-    gaussian_dists = {organ_name: norm(loc=mean_gauss[organ_name], scale=var_gauss[organ_name])
-                      for organ_name in organs.values()}
-    
-    # Generate CDFs
+    # Build CDFs using normal approximation (interpolated)
     cdfs = {}
     for organ_name in organs.values():
-        x = np.linspace(gaussian_dists[organ_name].ppf(0.01),
-                        gaussian_dists[organ_name].ppf(0.99), 100)
-        cdf_values = gaussian_dists[organ_name].cdf(x)
-        cdfs[organ_name] = interp1d(x, cdf_values, bounds_error=False, fill_value=(0, 1))
+        mean = mean_gauss[organ_name]
+        std = var_gauss[organ_name]
+        x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
+        cdf_vals = 0.5 * (1 + erf_vectorized((x - mean) / (std * np.sqrt(2))))
+        cdfs[organ_name] = interp1d(x, cdf_vals, bounds_error=False, fill_value=(0.0, 1.0))
 
     return cdfs, mean_gauss, var_gauss
 
-    
-    
+
 def compute_probabilistic_volume(preds, voxel_proportion=1):
     """
-    Computes the volume of the matrix given (either pancreas, kidney or liver)
-    by adding up all the probabilities in this matrix. This way the uncertainty plays
-    a role in the computation of the predicted organ. If there is no uncertainty, the 
-    volume should be close to the mean obtained by averaging the three annotations.
-    
-    preds: probabilistic matrix of a specific organ
-    voxel_proportion: vaue of the resampling needed voxel-wise, 1 by default
-     
-    @output volume
+    Compute the soft volume from probabilistic segmentation (expected volume).
     """
-    
-    # Sum the predicted probabilities to get the volume
     volume = preds.sum().item()
-    
-    return volume*voxel_proportion
+    return volume * voxel_proportion
+
+
+def crps_computation_fast(predicted_volume, cdf, mean, std_dev, num_points=500):
+    """
+    CRPS approximation using trapezoidal integration and JIT-accelerated heaviside.
+    """
+    lower_limit = mean - 4 * std_dev
+    upper_limit = mean + 4 * std_dev
+
+    x = np.linspace(lower_limit, upper_limit, num_points)
+    cdf_values = cdf(x)
+    heaviside_values = heaviside_vectorized(x - predicted_volume)
+
+    integrand = (cdf_values - heaviside_values) ** 2
+    crps_value = np.trapz(integrand, x)
+
+    return crps_value
+
+
+@njit
+def heaviside_vectorized(x):
+    """
+    Numba-accelerated Heaviside step function.
+    """
+    return 0.5 * (np.sign(x) + 1.0)
+
+@njit
+def erf_vectorized(x):
+    """
+    Numba-accelerated error function approximation.
+    Equivalent to scipy.special.erf, needed for CDF of normal.
+    """
+    # Abramowitz and Stegun formula 7.1.26 for erf(x)
+    a1, a2, a3, a4, a5 = 0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429
+    p = 0.3275911
+
+    sign = np.sign(x)
+    x = np.abs(x)
+    t = 1.0 / (1.0 + p * x)
+    y = 1.0 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * np.exp(-x * x)
+
+    return sign * y
 
 '''
 NCC
@@ -692,9 +697,9 @@ def apply_metrics (l_patient_files):
     
 
     #CRPS
-    #print("Computing CRPS")
-    #crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
-    #print(f"CRPS : {crps_score}")
+    print("Computing CRPS")
+    crps_score = volume_metric(np.stack(cropped_annotations, axis=0), cropped_prob_pred)
+    print(f"CRPS : {crps_score}")
 
     #NCC
     #print("Computing NCC")
