@@ -118,6 +118,25 @@ class S3Singleton:
             return response['Contents']
         return []
 
+    def list_output_directory(self) -> List[Dict[str, Any]]:
+        """
+        List contents of the output directory in the S3 bucket.
+
+        Returns:
+            List[Dict[str, Any]]: List of objects in the output directory
+        """
+        bucket = os.environ['S3_BUCKET']
+        prefix = f"{os.environ['S3_OUTPUT_DIR']}/"
+
+        response = self._s3_client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=prefix
+        )
+
+        if 'Contents' in response:
+            return response['Contents']
+        return []
+
     def empty_data_directory(self) -> List[str]:
         """
         Delete all objects in the data directory of the S3 bucket.
