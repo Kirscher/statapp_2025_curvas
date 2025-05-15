@@ -21,14 +21,10 @@ from statapp.utils.empty_utils import empty_directory
 from statapp.utils.progress_tracker import track_progress
 from statapp.utils.upload_utils import upload_directory_to_s3
 from statapp.utils.utils import info, setup_logging
+from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 import torch
-
-# Constants from prepare.py
-TRAIN_PATIENTS = ["001", "002", "009", "011", "015", "017", "021", "023", "031", "034", "035", "037", "038", "039", "031", "042", "043", "045", "046", "048"]
-VALIDATION_PATIENTS = ["049", "051", "058", "059", "061"]
-TEST_PATIENTS = ["003", "005", "007", "008", "010", "013", "018", "020", "025", "026", "027", "028", "030", "032", "052", "053", "054", "055", "057", "062", "064", "066", "067", "069", "070", "071", "073", "075", "076", "077", "078", "080", "081", "082", "083", "084", "086", "087", "089", "090", "091", "092", "093", "094", "095", "096", "097", "098", "099", "100", "101", "102", "103", "104", "105", "106", "107", "108", "109", "110", "111", "112", "113", "114", "115"]
 
 app = typer.Typer()
 
@@ -174,7 +170,6 @@ def get_selected_patients(patients: Union[List[str], Literal["all", "train", "va
     Returns:
         List[str]: List of selected patient numbers
     """
-    logger = setup_logging(verbose)
 
     # List contents of the data directory
     contents = s3_utils.list_data_directory()
@@ -485,7 +480,7 @@ def predict(
                     )
 
                     logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3 done!")
-                
+
 
                 upload_thread = threading.Thread(target=upload, name="Downloader", args=())
                 upload_thread.start()

@@ -15,6 +15,7 @@ from statapp.commands.prepare import app as prepare
 from statapp.commands.train import app as train
 from statapp.commands.run import app as run
 from statapp.commands.predict import app as predict
+from statapp.commands.ensemble import app as ensemble
 from statapp.commands.deprecated.prepare_nnunet import app as deprecated_prepare_nnunet
 from statapp.commands.deprecated.train_nnunet import app as deprecated_train_nnunet
 
@@ -32,6 +33,7 @@ app.add_typer(prepare)
 app.add_typer(train)
 app.add_typer(run)
 app.add_typer(predict)
+app.add_typer(ensemble)
 app.add_typer(deprecated_prepare_nnunet)
 app.add_typer(deprecated_train_nnunet)
 
