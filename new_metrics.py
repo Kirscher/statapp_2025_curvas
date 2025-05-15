@@ -176,19 +176,19 @@ def compute_hausdorff_distances (groundtruth, bin_pred):
     hausdorff_distances = {}
     organs = ['panc', 'kidn', 'livr']
     
-    for i, organ in enumerate(organs, start=0):
+    for i in range(3) : 
+        for organ in organs :
 
-        # Extract the coordinates of the foreground (non-zero) pixels
-        gt_coords = np.column_stack(np.where(groundtruth[i] > 0))
-        pred_coords = np.column_stack(np.where(bin_pred > 0))
+            gt_coords = np.column_stack(groundtruth[i] == organ)
+            pred_coords = np.column_stack(bin_pred == organ)
     
-        # Calculate the directed Hausdorff distance in both directions
-        forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
-        backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
+            # Calculate the directed Hausdorff distance in both directions
+            forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
+            backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
     
-        # The Hausdorff distance is the maximum of the two directed distances
-        hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
-        hausdorff_distances[organ] = hausdorff_distance
+            # The Hausdorff distance is the maximum of the two directed distances
+            hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
+            hausdorff_distances[str(organ) + "_" +str((i+1))] = hausdorff_distance
 
     
     return hausdorff_distances
@@ -628,7 +628,7 @@ def compute_crps_parallel(args):
     return volume_metric(*args)
 
 def compute_auroc_parallel(args):
-    return compute_aurc_eaurc(*args)
+    return compute_auroc(*args)
 
 def compute_aurc_eaurc_parallel(args):
     return compute_aurc_eaurc(*args)
@@ -714,15 +714,30 @@ def apply_metrics(l_patient_files):
         "CONF_livr": conf_scores["livr"],
         "Entropy_GT": entropy_gt,
         "Entropy_Pred": entropy_pred,
-        "Hausdorff_panc": hausdorff_distances["panc"],
-        "Hausdorff_kidn": hausdorff_distances["kidn"],
-        "Hausdorff_livr": hausdorff_distances["livr"],
-        "ECE_0": ece_scores[1],
-        "ECE_1": ece_scores[2],
-        "ECE_2": ece_scores[3],
-        "ACE_0": ace_dict[1],
-        "ACE_1": ace_dict[2],
-        "ACE_2": ace_dict[3],
+        "Hausdorff_panc_1": hausdorff_distances["panc_1"],
+        "Hausdorff_kidn_1": hausdorff_distances["kidn_1"],
+        "Hausdorff_livr_1": hausdorff_distances["livr_1"],
+        "Hausdorff_panc_2": hausdorff_distances["panc_2"],
+        "Hausdorff_kidn_2": hausdorff_distances["kidn_2"],
+        "Hausdorff_livr_2": hausdorff_distances["livr_2"],
+        "Hausdorff_panc_3": hausdorff_distances["panc_3"],
+        "Hausdorff_kidn_3": hausdorff_distances["kidn_3"],
+        "Hausdorff_livr_3": hausdorff_distances["livr_3"],
+        "ECE_1": ece_scores[1],
+        "ECE_2": ece_scores[2],
+        "ECE_3": ece_scores[3],
+        "ACE_1": ace_dict[1],
+        "ACE_2": ace_dict[2],
+        "ACE_3": ace_dict[3],
+        "AUROC_panc" : auroc_score["panc"],
+        "AUROC_kidn": auroc_score["kidn"],
+        "AUROC_livr": auroc_score["livr"],
+        "AURC_panc" : aurc_score["panc"],
+        "AURC_kidn": aurc_score["kidn"],
+        "AURC_livr": aurc_score["livr"],
+        "EAURC_panc" : eaurc_score["panc"],
+        "EAURC_kidn": eaurc_score["kidn"],
+        "EAURC_livr": eaurc_score["livr"],
         "CRPS_panc": crps_score["panc"],
         "CRPS_kidn": crps_score["kidn"],
         "CRPS_livr": crps_score["livr"],
@@ -790,6 +805,15 @@ df = pd.DataFrame(columns=[
         "ACE_1",
         "ACE_2",
         "ACE_3",
+        "AUROC_panc",
+        "AUROC_kidn",
+        "AUROC_livr",
+        "AURC_panc",
+        "AURC_kidn",
+        "AURC_livr",
+        "EAURC_panc",
+        "EAURC_kidn",
+        "EAURC_livr",
         "CRPS_panc",
         "CRPS_kidn",
         "CRPS_livr",
