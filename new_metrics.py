@@ -176,19 +176,19 @@ def compute_hausdorff_distances (groundtruth, bin_pred):
     hausdorff_distances = {}
     organs = ['panc', 'kidn', 'livr']
     
-    for i in range(3) : 
-        for organ in organs :
+    for i in range (3):
 
-            gt_coords = np.column_stack(groundtruth[i] == organ)
-            pred_coords = np.column_stack(bin_pred == organ)
+        # Extract the coordinates of the foreground (non-zero) pixels
+        gt_coords = np.column_stack(np.where(groundtruth[i] > 0))
+        pred_coords = np.column_stack(np.where(bin_pred > 0))
     
-            # Calculate the directed Hausdorff distance in both directions
-            forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
-            backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
+        # Calculate the directed Hausdorff distance in both directions
+        forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
+        backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
     
-            # The Hausdorff distance is the maximum of the two directed distances
-            hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
-            hausdorff_distances[str(organ) + "_" +str((i+1))] = hausdorff_distance
+        # The Hausdorff distance is the maximum of the two directed distances
+        hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
+        hausdorff_distances[i+1] = hausdorff_distance
 
     
     return hausdorff_distances
@@ -714,15 +714,9 @@ def apply_metrics(l_patient_files):
         "CONF_livr": conf_scores["livr"],
         "Entropy_GT": entropy_gt,
         "Entropy_Pred": entropy_pred,
-        "Hausdorff_panc_1": hausdorff_distances["panc_1"],
-        "Hausdorff_kidn_1": hausdorff_distances["kidn_1"],
-        "Hausdorff_livr_1": hausdorff_distances["livr_1"],
-        "Hausdorff_panc_2": hausdorff_distances["panc_2"],
-        "Hausdorff_kidn_2": hausdorff_distances["kidn_2"],
-        "Hausdorff_livr_2": hausdorff_distances["livr_2"],
-        "Hausdorff_panc_3": hausdorff_distances["panc_3"],
-        "Hausdorff_kidn_3": hausdorff_distances["kidn_3"],
-        "Hausdorff_livr_3": hausdorff_distances["livr_3"],
+        "Hausdorff_panc": hausdorff_distances[1],
+        "Hausdorff_kidn": hausdorff_distances[2],
+        "Hausdorff_livr": hausdorff_distances[3],
         "ECE_1": ece_scores[1],
         "ECE_2": ece_scores[2],
         "ECE_3": ece_scores[3],
@@ -796,9 +790,9 @@ df = pd.DataFrame(columns=[
         "CONF_livr",
         "Entropy_GT",
         "Entropy_Pred",
-        "Hausdorff_panc",
-        "Hausdorff_kidn",
-        "Hausdorff_livr",
+        "Hausdorff_1",
+        "Hausdorff_2",
+        "Hausdorff_3",
         "ECE_1",
         "ECE_2",
         "ECE_3",
