@@ -806,6 +806,6 @@ for f in l_patients :
     df = pd.concat([df,current_line], ignore_index=True)
 
 #Export data
-#df.to_csv("metrics.csv", index=False)
+df.to_csv("metrics.csv", index=False)
 print(df)
 
