@@ -55,6 +55,7 @@ gt_path = os.path.join(data_path, os.path.basename(str(data_path+"_GT")))
 
 # Prepare output
 df = pd.DataFrame(columns=[
+        "Patient_ID",
         "CT",
         "DICE_panc",
         "DICE_kidn",
@@ -97,6 +98,7 @@ ct_img, annot = getting_gt(gt_path)
 for f in l_models: 
     current_line = pd.DataFrame([apply_metrics(f, ct_img, annot)])
     df = pd.concat([df, current_line], ignore_index=True)
+df['Patient_ID'] = patient
 
 # Export data
 df.to_csv("metrics.csv", index=False)
