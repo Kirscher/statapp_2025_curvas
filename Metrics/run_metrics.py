@@ -1,3 +1,5 @@
+#pip install scikit-learn torch scipy monai torchmetrics
+
 import os
 from Metrics_func.new_metrics import apply_metrics, getting_gt
 import boto3
