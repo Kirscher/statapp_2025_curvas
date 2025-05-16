@@ -1,4 +1,4 @@
-# pip install scikit-learn torch scipy monai torchmetrics numba boto3 SimpleITK
+# pip install scikit-learn torch scipy monai torchmetrics numba boto3 SimpleITK awscli
 
 import os
 from Metrics_func.new_metrics import apply_metrics, getting_gt
@@ -30,6 +30,7 @@ output_command = f"aws s3 cp ./metrics.csv s3://projet-statapp-segmedic/metrics_
 
 
 os.system(pred_command)
+
 os.system(gt_command)
 
 
