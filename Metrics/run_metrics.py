@@ -13,54 +13,51 @@ aws_secret_access_key = input("aws_secret_access_key : ")
 aws_session_token = input("aws_session_token : ")
 patient = input("Patient ID (name of the folder with all the models) :")
 
-# Setup boto3 client (optional if you only use CLI commands)
-s3 = boto3.client(
-    "s3",
-    endpoint_url='https://minio.lab.sspcloud.fr',
-    aws_access_key_id=aws_access_key_id,
-    aws_secret_access_key=aws_secret_access_key,
-    aws_session_token=aws_session_token
-)
 
-# Environment variables for AWS CLI
-env = os.environ.copy()
-env["AWS_ACCESS_KEY_ID"] = aws_access_key_id
-env["AWS_SECRET_ACCESS_KEY"] = aws_secret_access_key
-env["AWS_SESSION_TOKEN"] = aws_session_token
-
-# Commands
-pred_command = [
-    "aws", "s3", "cp", 
-    f"s3://projet-statapp-segmedic/output/{patient}", 
-    f"./{patient}", 
-    "--endpoint-url", "https://minio.lab.sspcloud.fr", 
-    "--recursive"
-]
-
-gt_command = [
-    "aws", "s3", "cp", 
-    f"s3://projet-statapp-segmedic/data/{patient}", 
-    f"./{patient}/{patient}_GT", 
-    "--endpoint-url", "https://minio.lab.sspcloud.fr", 
-    "--recursive"
-]
-
-output_command = [
-    "aws", "s3", "cp", 
-    "./metrics.csv", 
-    f"s3://projet-statapp-segmedic/metrics_results/{patient}/metrics.csv", 
-    "--endpoint-url", "https://minio.lab.sspcloud.fr"
-]
-
-# Execute CLI commands with injected credentials
-subprocess.run(pred_command, env=env)
-subprocess.run(gt_command, env=env)
-
-
-
-os.system(pred_command)
-
-os.system(gt_command)
+skip = input("skip download ? (yes/no)")
+if skip != "yes":
+    # Setup boto3 client (optional if you only use CLI commands)
+    s3 = boto3.client(
+        "s3",
+        endpoint_url='https://minio.lab.sspcloud.fr',
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        aws_session_token=aws_session_token
+    )
+    
+    # Environment variables for AWS CLI
+    env = os.environ.copy()
+    env["AWS_ACCESS_KEY_ID"] = aws_access_key_id
+    env["AWS_SECRET_ACCESS_KEY"] = aws_secret_access_key
+    env["AWS_SESSION_TOKEN"] = aws_session_token
+    
+    # Commands
+    pred_command = [
+        "aws", "s3", "cp", 
+        f"s3://projet-statapp-segmedic/output/{patient}", 
+        f"./{patient}", 
+        "--endpoint-url", "https://minio.lab.sspcloud.fr", 
+        "--recursive"
+    ]
+    
+    gt_command = [
+        "aws", "s3", "cp", 
+        f"s3://projet-statapp-segmedic/data/{patient}", 
+        f"./{patient}/{patient}_GT", 
+        "--endpoint-url", "https://minio.lab.sspcloud.fr", 
+        "--recursive"
+    ]
+    
+    output_command = [
+        "aws", "s3", "cp", 
+        "./metrics.csv", 
+        f"s3://projet-statapp-segmedic/metrics_results/{patient}/metrics.csv", 
+        "--endpoint-url", "https://minio.lab.sspcloud.fr"
+    ]
+    
+    # Execute CLI commands with injected credentials
+    subprocess.run(pred_command, env=env)
+    subprocess.run(gt_command, env=env)
 
 
 # Locating data
