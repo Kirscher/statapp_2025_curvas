@@ -10,8 +10,8 @@ aws_access_key_id = input(str("aws_access_key_id : ")) #"MPOO6QLTXGQVW61QK4ZE"
 aws_secret_access_key = input(str("aws_access_key_key : ")) #"LeZYGLEp99y+IkkKBRkRaNVdkc2YHK+lekNx+L+f"
 aws_session_token = input(str("aws_session_token : "))
 patient = input(str("Patient ID (name of the folder with all the models) :"))
-pred_patient_path = input(str("Path to folder with predictions in s3 (only bucket/.../folder) :")) #"projet-statapp-segmedic/output/UKCHLL007"
-gt_patient_path = input(str("Path to folder with GT in s3 (only bucket/.../folder) :")) #"projet-statapp-segmedic/data/UKCHLL007"
+#pred_patient_path = input(str("Path to folder with predictions in s3 (only bucket/.../folder) :")) #"projet-statapp-segmedic/output/UKCHLL007"
+#gt_patient_path = input(str("Path to folder with GT in s3 (only bucket/.../folder) :")) #"projet-statapp-segmedic/data/UKCHLL007"
 
 
 s3 = boto3.client(
@@ -23,8 +23,8 @@ s3 = boto3.client(
 )
 
 
-pred_command = f"aws s3 cp s3://{pred_patient_path} ./{patient} --endpoint-url https://minio.lab.sspcloud.fr --recursive"
-gt_command = f"aws s3 cp s3://{gt_patient_path} ./{patient}/{patient}_GT --endpoint-url https://minio.lab.sspcloud.fr --recursive"
+pred_command = f"aws s3 cp s3://projet-statapp-segmedic/output/{patient} ./{patient} --endpoint-url https://minio.lab.sspcloud.fr --recursive"
+gt_command = f"aws s3 cp s3://projet-statapp-segmedic/data/{patient} ./{patient}/{patient}_GT --endpoint-url https://minio.lab.sspcloud.fr --recursive"
 output_command = f"aws s3 cp ./metrics.csv s3://projet-statapp-segmedic/metrics_results/{patient}/metrics.csv --endpoint-url https://minio.lab.sspcloud.fr"
 
 
