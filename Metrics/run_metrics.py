@@ -24,7 +24,7 @@ s3 = boto3.client(
 
 pred_command = f"aws s3 cp s3://{pred_patient_path} ./{patient} --endpoint-url https://minio.lab.sspcloud.fr --recursive"
 gt_command = f"aws s3 cp s3://{gt_patient_path} ./{patient}/{patient}_GT --endpoint-url https://minio.lab.sspcloud.fr --recursive"
-output_command = f"aws s3 cp ./metrics.csv s3://metrics_results/{patient}/metrics.csv --endpoint-url https://minio.lab.sspcloud.fr"
+output_command = f"aws s3 cp ./metrics.csv s3://projet-statapp-segmedic/metrics_results/{patient}/metrics.csv --endpoint-url https://minio.lab.sspcloud.fr"
 
 # s3.upload_file("metrics.csv", "projet-statapp-segmedic", "metrics_results/patient/metrics.csv")
 
@@ -39,7 +39,7 @@ l_models_path = [item for item in l_models_path if "GT" not in item]
 l_models = []
 
 for model_dir in l_models_path:
-    model_dict = {"pred": None, "prob": None, "name": re.findall(r"\/([^\/]+)$",model_dir)}
+    model_dict = {"pred": None, "prob": None, "name": os.path.basename(model_dir)}
     model_path = os.path.join(data_path, model_dir)
     for item in os.listdir(model_path):
         item_path = os.path.join(model_path, item)
