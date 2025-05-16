@@ -90,14 +90,37 @@ class S3Singleton:
         bucket = os.environ['S3_BUCKET']
         prefix = f"{os.environ['S3_DATA_DIR']}/"
 
-        response = self._s3_client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix
-        )
+        all_contents = []
+        continuation_token = None
 
-        if 'Contents' in response:
-            return response['Contents']
-        return []
+        while True:
+            # Prepare parameters for list_objects_v2
+            params = {
+                'Bucket': bucket,
+                'Prefix': prefix
+            }
+
+            # Add continuation token if we have one
+            if continuation_token:
+                params['ContinuationToken'] = continuation_token
+
+            # Make the API call
+            response = self._s3_client.list_objects_v2(**params)
+
+            # Add contents to our result list
+            if 'Contents' in response:
+                all_contents.extend(response['Contents'])
+
+            # Check if there are more objects to retrieve
+            if not response.get('IsTruncated'):  # No more objects
+                break
+
+            # Get the continuation token for the next request
+            continuation_token = response.get('NextContinuationToken')
+            if not continuation_token:  # Safety check
+                break
+
+        return all_contents
 
     def list_artifacts_directory(self) -> List[Dict[str, Any]]:
         """
@@ -109,14 +132,37 @@ class S3Singleton:
         bucket = os.environ['S3_BUCKET']
         prefix = f"{os.environ['S3_ARTIFACTS_DIR']}/"
 
-        response = self._s3_client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix
-        )
+        all_contents = []
+        continuation_token = None
 
-        if 'Contents' in response:
-            return response['Contents']
-        return []
+        while True:
+            # Prepare parameters for list_objects_v2
+            params = {
+                'Bucket': bucket,
+                'Prefix': prefix
+            }
+
+            # Add continuation token if we have one
+            if continuation_token:
+                params['ContinuationToken'] = continuation_token
+
+            # Make the API call
+            response = self._s3_client.list_objects_v2(**params)
+
+            # Add contents to our result list
+            if 'Contents' in response:
+                all_contents.extend(response['Contents'])
+
+            # Check if there are more objects to retrieve
+            if not response.get('IsTruncated'):  # No more objects
+                break
+
+            # Get the continuation token for the next request
+            continuation_token = response.get('NextContinuationToken')
+            if not continuation_token:  # Safety check
+                break
+
+        return all_contents
 
     def list_output_directory(self) -> List[Dict[str, Any]]:
         """
@@ -128,14 +174,37 @@ class S3Singleton:
         bucket = os.environ['S3_BUCKET']
         prefix = f"{os.environ['S3_OUTPUT_DIR']}/"
 
-        response = self._s3_client.list_objects_v2(
-            Bucket=bucket,
-            Prefix=prefix
-        )
+        all_contents = []
+        continuation_token = None
 
-        if 'Contents' in response:
-            return response['Contents']
-        return []
+        while True:
+            # Prepare parameters for list_objects_v2
+            params = {
+                'Bucket': bucket,
+                'Prefix': prefix
+            }
+
+            # Add continuation token if we have one
+            if continuation_token:
+                params['ContinuationToken'] = continuation_token
+
+            # Make the API call
+            response = self._s3_client.list_objects_v2(**params)
+
+            # Add contents to our result list
+            if 'Contents' in response:
+                all_contents.extend(response['Contents'])
+
+            # Check if there are more objects to retrieve
+            if not response.get('IsTruncated'):  # No more objects
+                break
+
+            # Get the continuation token for the next request
+            continuation_token = response.get('NextContinuationToken')
+            if not continuation_token:  # Safety check
+                break
+
+        return all_contents
 
     def empty_data_directory(self) -> List[str]:
         """
