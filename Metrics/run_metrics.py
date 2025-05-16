@@ -1,4 +1,4 @@
-#pip install scikit-learn torch scipy monai torchmetrics
+# pip install scikit-learn torch scipy monai torchmetrics numba boto3 SimpleITK
 
 import os
 from Metrics_func.new_metrics import apply_metrics, getting_gt
