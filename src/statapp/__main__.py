@@ -16,6 +16,7 @@ from statapp.commands.train import app as train
 from statapp.commands.run import app as run
 from statapp.commands.predict import app as predict
 from statapp.commands.ensemble import app as ensemble
+from statapp.commands.metrics import app as metrics
 
 app = Typer(
     context_settings={"help_option_names": ["--help", "-h"]},
@@ -31,6 +32,7 @@ app.add_typer(train)
 app.add_typer(run)
 app.add_typer(predict)
 app.add_typer(ensemble)
+app.add_typer(metrics)
 
 def main() -> None:
     """

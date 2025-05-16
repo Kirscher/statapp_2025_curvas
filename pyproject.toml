@@ -40,7 +40,10 @@ dependencies = [
     "click==8.1.2", #otherwise we get an error with typer, especially on onyxia pytorch gpu pods.
     "python-dotenv",
     "humanize",
-    "boto3"
+    "boto3",
+    "monai",
+    "torchmetrics",
+    "numba"
 ]
 
 [project.urls]
