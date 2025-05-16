@@ -8,10 +8,11 @@ computing various metrics such as DICE scores, calibration errors, and more.
 import os
 import re
 import tempfile
+import threading
 import time
-import pandas as pd
 from pathlib import Path
 from typing import List, Union, Literal, Optional
+import pandas as pd
 
 import typer
 from rich.text import Text
@@ -102,179 +103,150 @@ def get_available_models() -> List[str]:
     Returns:
         List[str]: List of model folder names
     """
-    # List contents of the models directory
-    contents = s3_utils.list_artifacts_directory()
+    # List contents of the output directory
+    contents = s3_utils.list_output_directory()
 
-    # Extract folder names that match the pattern anno[ANNOTATOR]_init[SEED]_foldall
-    pattern = re.compile(r'^' + re.escape(os.environ['S3_ARTIFACTS_DIR']) + r'/' + 
-                         re.escape(os.environ['S3_MODEL_ARTIFACTS_SUBDIR']) + 
-                         r'/anno(\d+)_init(\d+)_foldall(?:/.*)?$')
-
+    # Extract folder names that match the pattern UKCHLL[NNN]/[MODEL_NAME]
+    pattern = re.compile(r'^' + re.escape(os.environ['S3_OUTPUT_DIR']) + r'/UKCHLL\d{3}/([^/]+)(?:/.*)?$')
     available_models = set()
 
     for item in contents:
         key = item['Key']
         match = pattern.match(key)
         if match:
-            # Extract the model folder name (anno[ANNOTATOR]_init[SEED]_foldall)
-            model_path = key.split('/')
-            if len(model_path) >= 3:
-                model_name = model_path[2]  # Get the third component (index 2)
+            model_name = match.group(1)
+            # Exclude ensemble folders
+            if not model_name.startswith("ensemble_"):
                 available_models.add(model_name)
 
     return sorted(list(available_models))
 
-def download_patient_data(patient_id: str, output_dir: Path, verbose: bool = False, progress_tracker = None) -> bool:
+def download_patient_data(patient_id: str, model_name: str, local_dir: Path, verbose: bool = False, progress_tracker = None) -> dict:
     """
-    Download patient data (ground truth and predictions) from S3.
+    Download patient data and model predictions from S3.
 
     Args:
         patient_id (str): Patient ID (e.g., 001)
-        output_dir (Path): Output directory to save the files
+        model_name (str): Model name (e.g., anno1_init112233_foldall)
+        local_dir (Path): Local directory to download the data to
         verbose (bool): Enable verbose logging
         progress_tracker: Optional progress tracker instance
 
     Returns:
-        bool: True if files were downloaded successfully, False otherwise
+        dict: Dictionary with paths to downloaded files
     """
     logger = setup_logging(verbose)
 
-    # Create patient directory
-    patient_dir = output_dir / f"UKCHLL{patient_id}"
-    os.makedirs(patient_dir, exist_ok=True)
+    # Create patient and model directories
+    patient_dir = local_dir / f"UKCHLL{patient_id}"
+    model_dir = patient_dir / model_name
+    gt_dir = patient_dir / f"{patient_id}_GT"
 
-    # Create ground truth directory
-    gt_dir = patient_dir / f"UKCHLL{patient_id}_GT"
+    os.makedirs(model_dir, exist_ok=True)
     os.makedirs(gt_dir, exist_ok=True)
 
     # Define the remote paths
-    pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}"
+    pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
     gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{patient_id}"
 
-    # List contents of the output and data directories
+    # List contents of the directories
     output_contents = s3_utils.list_output_directory()
     data_contents = s3_utils.list_data_directory()
 
-    # Find all prediction files for this patient
-    pred_files = []
-    pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/')
+    # Find prediction and probability files
+    pred_file = None
+    prob_file = None
+    pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
+    prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
 
     for item in output_contents:
         key = item['Key']
         if pred_pattern.match(key):
-            pred_files.append(key)
+            pred_file = key
+        elif prob_pattern.match(key):
+            prob_file = key
 
-    # Find all ground truth files for this patient
+    if not pred_file or not prob_file:
+        logger.error(f"Prediction or probability file not found for patient UKCHLL{patient_id} and model {model_name}")
+        return None
+
+    # Find ground truth files
     gt_files = []
-    gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/')
+    image_file = None
+    gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
+    image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
 
     for item in data_contents:
         key = item['Key']
         if gt_pattern.match(key):
             gt_files.append(key)
+        elif image_pattern.match(key):
+            image_file = key
 
-    if not pred_files:
-        logger.error(f"No prediction files found for patient UKCHLL{patient_id}")
-        return False
+    if not gt_files or not image_file:
+        logger.error(f"Ground truth or image file not found for patient UKCHLL{patient_id}")
+        return None
 
-    if not gt_files:
-        logger.error(f"No ground truth files found for patient UKCHLL{patient_id}")
-        return False
+    # Download files
+    files_to_download = [
+        (pred_file, model_dir / os.path.basename(pred_file)),
+        (prob_file, model_dir / os.path.basename(prob_file)),
+        (image_file, gt_dir / os.path.basename(image_file))
+    ]
 
-    # Download the prediction files
-    success = True
+    for gt_file in gt_files:
+        files_to_download.append((gt_file, gt_dir / os.path.basename(gt_file)))
+
+    # Start time for tracking
     start_time = time.time()
 
-    # Download each prediction file
-    for file_path in pred_files:
-        # Get the file name from the path
-        file_name = os.path.basename(file_path)
-
-        # Get the model name from the path (if it exists)
-        path_parts = file_path.split('/')
-        if len(path_parts) > 3:  # Should be at least S3_OUTPUT_DIR/UKCHLL{patient_id}/model_name/file
-            model_name = path_parts[3]
-            # Create model directory if it doesn't exist
-            model_dir = patient_dir / model_name
-            os.makedirs(model_dir, exist_ok=True)
-            local_file_path = model_dir / file_name
-        else:
-            local_file_path = patient_dir / file_name
-
+    # Download each file
+    for remote_path, local_path in files_to_download:
         # Get the file size
-        bucket, key = s3_utils.parse_remote_path(file_path)
+        bucket, key = s3_utils.parse_remote_path(remote_path)
         file_size = s3_utils.get_file_size(bucket, key)
 
-        logger.info(f"Downloading {file_name} for patient UKCHLL{patient_id}")
-
         # Create a callback function for progress updates
-        def file_progress_callback(bytes_transferred):
+        def progress_callback(bytes_transferred):
             if progress_tracker:
                 progress_tracker.update_file_progress(
                     bytes_transferred, 
                     file_size, 
-                    f"Downloading {file_name} for patient UKCHLL{patient_id}", 
+                    f"Downloading {os.path.basename(remote_path)} for patient UKCHLL{patient_id}", 
                     start_time
                 )
 
         # Download the file with progress tracking
-        file_success = s3_utils.download_file(
-            remote_path=file_path,
-            local_path=str(local_file_path),
-            callback=file_progress_callback
+        success = s3_utils.download_file(
+            remote_path=remote_path,
+            local_path=str(local_path),
+            callback=progress_callback
         )
 
-        if not file_success:
-            logger.error(f"Failed to download {file_name} for patient UKCHLL{patient_id}")
-            success = False
+        if not success:
+            logger.error(f"Failed to download {os.path.basename(remote_path)} for patient UKCHLL{patient_id}")
+            return None
 
-    # Download each ground truth file
-    for file_path in gt_files:
-        # Get the file name from the path
-        file_name = os.path.basename(file_path)
-        local_file_path = gt_dir / file_name
+    logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
 
-        # Get the file size
-        bucket, key = s3_utils.parse_remote_path(file_path)
-        file_size = s3_utils.get_file_size(bucket, key)
-
-        logger.info(f"Downloading {file_name} for patient UKCHLL{patient_id} ground truth")
-
-        # Create a callback function for progress updates
-        def file_progress_callback(bytes_transferred):
-            if progress_tracker:
-                progress_tracker.update_file_progress(
-                    bytes_transferred, 
-                    file_size, 
-                    f"Downloading {file_name} for patient UKCHLL{patient_id} ground truth", 
-                    start_time
-                )
-
-        # Download the file with progress tracking
-        file_success = s3_utils.download_file(
-            remote_path=file_path,
-            local_path=str(local_file_path),
-            callback=file_progress_callback
-        )
-
-        if not file_success:
-            logger.error(f"Failed to download {file_name} for patient UKCHLL{patient_id} ground truth")
-            success = False
-
-    logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id}")
-    return success
+    # Return paths to downloaded files
+    return {
+        "pred": str(model_dir / os.path.basename(pred_file)),
+        "prob": str(model_dir / os.path.basename(prob_file)),
+        "name": model_name,
+        "gt_dir": str(gt_dir)
+    }
 
 @app.command()
-def run_metrics(
+def compute_metrics(
     patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test'"),
-    models: List[str] = typer.Option(["all"], "-m", "--models", help="List of models to evaluate metrics for (e.g., anno1_init112233_foldall) or 'all'"),
-    nb_workers: int = typer.Option(10, '-j', "--jobs", help="Number of processes to run"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging")
+    models: List[str] = typer.Option(["all"], "-m", "--models", help="List of models to use for metrics computation (e.g., anno1_init112233_foldall) or 'all'"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
     """
-    Run metrics evaluation on model predictions.
+    Compute metrics for model predictions on patient data.
 
-    Downloads patient ground truth and model predictions, computes metrics,
+    Downloads patient data and model predictions, computes various metrics,
     and uploads results to S3.
 
     Patient selection options:
@@ -331,145 +303,209 @@ def run_metrics(
         info(Text.assemble(("Error: ", "bold red"), ("No valid models selected", "")))
         return
 
-    # Process each patient
-    for patient_id in selected_patients:
-        logger.info(f"Processing patient UKCHLL{patient_id}...")
+    # Create temporary directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        download_dir = temp_path / "download"
+        metrics_dir = temp_path / "metrics"
 
-        # Create temporary directory
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            download_dir = temp_path / "download"
-            metrics_dir = temp_path / "metrics"
+        os.makedirs(download_dir, exist_ok=True)
+        os.makedirs(metrics_dir, exist_ok=True)
 
-            os.makedirs(download_dir, exist_ok=True)
-            os.makedirs(metrics_dir, exist_ok=True)
+        # Create DataFrame to store metrics
+        df = pd.DataFrame(columns=[
+            "Patient_ID",
+            "CT",
+            "DICE_panc",
+            "DICE_kidn",
+            "DICE_livr",
+            "CONF_panc",
+            "CONF_kidn",
+            "CONF_livr",
+            "Entropy_GT",
+            "Entropy_Pred",
+            "Hausdorff_1",
+            "Hausdorff_2",
+            "Hausdorff_3",
+            "ECE_1",
+            "ECE_2",
+            "ECE_3",
+            "ACE_1",
+            "ACE_2",
+            "ACE_3",
+            "AUROC_panc",
+            "AUROC_kidn",
+            "AUROC_livr",
+            "AURC_panc",
+            "AURC_kidn",
+            "AURC_livr",
+            "EAURC_panc",
+            "EAURC_kidn",
+            "EAURC_livr",
+            "CRPS_panc",
+            "CRPS_kidn",
+            "CRPS_livr",
+            "NCC_GT1-2",
+            "NCC_GT1-3",
+            "NCC_GT2-3",
+            "NCC_mean"
+        ])
 
-            # Download patient data
-            logger.info(f"Downloading data for patient UKCHLL{patient_id}...")
+        # Process each patient
+        for patient_id in selected_patients:
+            logger.info(f"Processing patient UKCHLL{patient_id}...")
 
-            # Define a function to get the "size" of a patient (we'll just use 1 for each patient)
-            def get_patient_size(patient_id):
-                return 1
+            # Create patient metrics directory
+            patient_metrics_dir = metrics_dir / f"UKCHLL{patient_id}"
+            os.makedirs(patient_metrics_dir, exist_ok=True)
 
-            # Define a function to process a patient
-            def process_patient(patient_id, progress_tracker):
-                progress_tracker.start_file(patient_id, f"Processing patient UKCHLL{patient_id}", 1)
-                logger.info(f"Processing patient UKCHLL{patient_id}...")
+            # Create a list of patient-model pairs to process
+            pairs = [(patient_id, model) for model in selected_models]
+
+            # Define a function to get the combined size of all files for a patient-model pair
+            def get_pair_size(pair):
+                p_id, model_name = pair
+
+                # Define the remote paths
+                pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{p_id}/{model_name}"
+                gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{p_id}"
+
+                # List contents of the directories
+                output_contents = s3_utils.list_output_directory()
+                data_contents = s3_utils.list_data_directory()
+
+                # Count files and their sizes
+                total_size = 0
+
+                # Check prediction files
+                pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
+                prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
+
+                for item in output_contents:
+                    key = item['Key']
+                    if pred_pattern.match(key) or prob_pattern.match(key):
+                        bucket, file_key = s3_utils.parse_remote_path(key)
+                        file_size = s3_utils.get_file_size(bucket, file_key)
+                        total_size += file_size
+
+                # Check ground truth files
+                gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
+                image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
+
+                for item in data_contents:
+                    key = item['Key']
+                    if gt_pattern.match(key) or image_pattern.match(key):
+                        bucket, file_key = s3_utils.parse_remote_path(key)
+                        file_size = s3_utils.get_file_size(bucket, file_key)
+                        total_size += file_size
+
+                return total_size
+
+            # Define a function to process a patient-model pair
+            def process_pair(pair, progress_tracker):
+                p_id, model_name = pair
+                # Get the actual size of the pair
+                pair_size = get_pair_size(pair)
+                progress_tracker.start_file(pair, f"Processing patient UKCHLL{p_id} with model {model_name}", pair_size)
+                logger.info(f"Processing patient UKCHLL{p_id} with model {model_name}...")
 
                 try:
-                    # Download patient data
-                    success = download_patient_data(patient_id, download_dir, verbose, progress_tracker)
-                    if not success:
-                        logger.error(f"Failed to download data for patient UKCHLL{patient_id}")
-                        progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id}", 1, time.time(), success=False)
+                    # Download patient data and model predictions
+                    model_files = download_patient_data(p_id, model_name, download_dir, verbose, progress_tracker)
+
+                    if not model_files:
+                        logger.error(f"Failed to download data for patient UKCHLL{p_id} and model {model_name}")
+                        progress_tracker.complete_file(f"Failed to process patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=False)
                         return
+
+                    # Load ground truth data
+                    ct_image, annotations = getting_gt(model_files["gt_dir"])
 
                     # Compute metrics
-                    logger.info(f"Computing metrics for patient UKCHLL{patient_id}...")
+                    logger.info(f"Computing metrics for patient UKCHLL{p_id} and model {model_name}...")
+                    metrics = apply_metrics(model_files, ct_image, annotations)
 
-                    # Prepare paths
-                    patient_dir = download_dir / f"UKCHLL{patient_id}"
-                    gt_dir = patient_dir / f"UKCHLL{patient_id}_GT"
+                    # Add patient ID to metrics
+                    metrics["Patient_ID"] = p_id
 
-                    # Get model directories
-                    model_dirs = [d for d in patient_dir.iterdir() if d.is_dir() and d.name != f"UKCHLL{patient_id}_GT"]
-                    if not model_dirs:
-                        logger.error(f"No model directories found for patient UKCHLL{patient_id}")
-                        progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id}", 1, time.time(), success=False)
-                        return
+                    # Add metrics to DataFrame
+                    nonlocal df
+                    df = pd.concat([df, pd.DataFrame([metrics])], ignore_index=True)
 
-                    # Prepare output dataframe
-                    df = pd.DataFrame(columns=[
-                        "Patient_ID",
-                        "CT",
-                        "DICE_panc",
-                        "DICE_kidn",
-                        "DICE_livr",
-                        "CONF_panc",
-                        "CONF_kidn",
-                        "CONF_livr",
-                        "Entropy_GT",
-                        "Entropy_Pred",
-                        "Hausdorff_1",
-                        "Hausdorff_2",
-                        "Hausdorff_3",
-                        "ECE_1",
-                        "ECE_2",
-                        "ECE_3",
-                        "ACE_1",
-                        "ACE_2",
-                        "ACE_3",
-                        "AUROC_panc",
-                        "AUROC_kidn",
-                        "AUROC_livr",
-                        "AURC_panc",
-                        "AURC_kidn",
-                        "AURC_livr",
-                        "EAURC_panc",
-                        "EAURC_kidn",
-                        "EAURC_livr",
-                        "CRPS_panc",
-                        "CRPS_kidn",
-                        "CRPS_livr",
-                        "NCC_GT1-2",
-                        "NCC_GT1-3",
-                        "NCC_GT2-3",
-                        "NCC_mean"
-                    ])
-
-                    # Get ground truth
-                    ct_img, annot = getting_gt(str(gt_dir))
-
-                    # Process each model
-                    for model_dir in model_dirs:
-                        model_name = model_dir.name
-                        logger.info(f"Computing metrics for model {model_name}...")
-
-                        # Prepare model dict
-                        model_dict = {"pred": None, "prob": None, "name": model_name}
-
-                        # Find prediction and probability files
-                        for item in os.listdir(model_dir):
-                            item_path = os.path.join(model_dir, item)
-                            if item.endswith(".nii.gz"):
-                                model_dict["pred"] = item_path
-                            elif item.endswith(".npz"):
-                                model_dict["prob"] = item_path
-
-                        # Compute metrics
-                        if model_dict["pred"] is not None:
-                            current_line = pd.DataFrame([apply_metrics(model_dict, ct_img, annot)])
-                            df = pd.concat([df, current_line], ignore_index=True)
-                        else:
-                            logger.warning(f"No prediction file found for model {model_name}")
-
-                    # Set patient ID
-                    df['Patient_ID'] = f"UKCHLL{patient_id}"
-
-                    # Save metrics to CSV
-                    metrics_file = metrics_dir / f"metrics_UKCHLL{patient_id}.csv"
-                    df.to_csv(metrics_file, index=False)
-                    logger.info(f"Metrics saved to {metrics_file}")
-
-                    # Upload metrics to S3
-                    logger.info(f"Uploading metrics for patient UKCHLL{patient_id} to S3...")
-                    upload_directory_to_s3(
-                        directory=str(metrics_dir),
-                        remote_dir_env_var="S3_OUTPUT_DIR",
-                        subfolder=f"metrics/UKCHLL{patient_id}",
-                        verbose=verbose,
-                        command_description=f"Upload metrics for patient UKCHLL{patient_id}",
-                        tracker=False
-                    )
-
-                    # Mark patient as completed
-                    progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id}", 1, time.time(), success=True)
+                    progress_tracker.complete_file(f"Processed patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=True)
 
                 except Exception as e:
-                    logger.error(f"Error processing patient UKCHLL{patient_id}: {str(e)}")
-                    progress_tracker.complete_file(f"Error processing patient UKCHLL{patient_id}", 1, time.time(), success=False)
+                    logger.error(f"Error processing patient UKCHLL{p_id} with model {model_name}: {str(e)}")
+                    progress_tracker.complete_file(f"Error processing patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=False)
 
-            # Track progress of processing patients
-            track_progress([patient_id], get_patient_size, process_patient)
+            # Calculate the total number of files to download
+            def count_pair_files(pair):
+                p_id, model_name = pair
 
-    logger.info(Text("Metrics evaluation completed successfully", style="bold green"))
+                # Define the remote paths
+                pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{p_id}/{model_name}"
+                gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{p_id}"
+
+                # List contents of the directories
+                output_contents = s3_utils.list_output_directory()
+                data_contents = s3_utils.list_data_directory()
+
+                # Count files
+                file_count = 0
+
+                # Check prediction files
+                pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
+                prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
+
+                for item in output_contents:
+                    key = item['Key']
+                    if pred_pattern.match(key) or prob_pattern.match(key):
+                        file_count += 1
+
+                # Check ground truth files
+                gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
+                image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
+
+                for item in data_contents:
+                    key = item['Key']
+                    if gt_pattern.match(key) or image_pattern.match(key):
+                        file_count += 1
+
+                return file_count
+
+            # Calculate the total number of files to download
+            total_files = sum(count_pair_files(pair) for pair in pairs)
+
+            logger.info(f"This will download a total of {total_files} files for patient UKCHLL{patient_id}")
+
+            # Track progress of processing pairs
+            track_progress(pairs, get_pair_size, process_pair, total_files)
+
+            # Save metrics for this patient
+            patient_metrics_file = patient_metrics_dir / "metrics.csv"
+            patient_df = df[df["Patient_ID"] == patient_id]
+            patient_df.to_csv(str(patient_metrics_file), index=False)
+
+            # Upload metrics to S3
+            logger.info(f"Uploading metrics for patient UKCHLL{patient_id} to S3...")
+
+            def upload():
+                upload_directory_to_s3(
+                    directory=str(patient_metrics_dir),
+                    remote_dir_env_var="S3_METRICS_DIR",
+                    subfolder=f"UKCHLL{patient_id}",
+                    verbose=verbose,
+                    command_description=f"Upload metrics for patient UKCHLL{patient_id}",
+                    tracker=False
+                )
+                logger.info(f"Metrics for patient UKCHLL{patient_id} uploaded successfully.")
+
+            upload_thread = threading.Thread(target=upload, name="Uploader", args=())
+            upload_thread.start()
+            upload_thread.join()  # Wait for upload to complete
+
+        # Save all metrics to a single file
+        all_metrics_file = metrics_dir / "metrics.csv"
+        df.to_csv(str(all_metrics_file), index=False)
+
+        logger.info(Text("Metrics computation completed successfully", style="bold green"))

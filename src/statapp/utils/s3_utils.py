@@ -47,6 +47,17 @@ def list_output_directory() -> List[Dict[str, Any]]:
     return s3.list_output_directory()
 
 
+def list_metrics_directory() -> List[Dict[str, Any]]:
+    """
+    List contents of the metrics directory in the S3 bucket.
+
+    Returns:
+        List[Dict[str, Any]]: List of objects in the metrics directory
+    """
+    s3 = S3Singleton()
+    return s3.list_metrics_directory()
+
+
 def empty_data_directory() -> List[str]:
     """
     Delete all objects in the data directory of the S3 bucket.
@@ -419,8 +430,8 @@ def parse_remote_path(remote_path: str, local_path: str = None) -> Tuple[str, st
     Returns:
         Tuple[str, str]: Bucket and key
     """
-    # Check if the remote path starts with the artifacts, data, or output directory
-    if remote_path.startswith(os.environ['S3_ARTIFACTS_DIR']) or remote_path.startswith(os.environ['S3_DATA_DIR']) or remote_path.startswith(os.environ['S3_OUTPUT_DIR']):
+    # Check if the remote path starts with the artifacts, data, output, or metrics directory
+    if remote_path.startswith(os.environ['S3_ARTIFACTS_DIR']) or remote_path.startswith(os.environ['S3_DATA_DIR']) or remote_path.startswith(os.environ['S3_OUTPUT_DIR']) or remote_path.startswith(os.environ['S3_METRICS_DIR']):
         # Use the correct bucket name from the environment variable
         bucket = os.environ['S3_BUCKET']
         key = remote_path

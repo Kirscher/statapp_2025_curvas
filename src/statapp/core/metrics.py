@@ -7,33 +7,22 @@ This code aims at computing metrics for nnUNet segmentation predictions. It has 
 It requires a folder with for each patient a folder containing GT and predictions (see BODY part for the detail)
 """
 
-#IMPORTS
-"""
-The needed imports for the metrics computation.
-Please run : 
-pip install scikit-learn torch scipy monai torchmetrics numba boto3
-to install the libraries that are not automatically implemented by onyxia.
-"""
+import os
 
 import SimpleITK as sitk
-import os
-import re
 import numpy as np
-import pandas as pd
-from sklearn.utils import column_or_1d
-from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_auc_score
 import torch
-from scipy.stats import norm
 from monai.metrics import DiceMetric
 from monai.transforms import AsDiscrete
 from monai.transforms import CropForeground
-from scipy.integrate import quad
-from scipy.interpolate import interp1d
-from scipy.stats import entropy
-from scipy.spatial.distance import directed_hausdorff
-from torchmetrics.classification import MulticlassCalibrationError
 from numba import njit
+from scipy.interpolate import interp1d
+from scipy.spatial.distance import directed_hausdorff
+from scipy.stats import entropy
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import label_binarize
+from sklearn.utils import column_or_1d
+from torchmetrics.classification import MulticlassCalibrationError
 
 #FUNCTIONS
 
@@ -174,23 +163,22 @@ def compute_hausdorff_distances (groundtruth, bin_pred):
     @output hausdorff_distance
     """
     hausdorff_distances = {}
-    organs = ['panc', 'kidn', 'livr']
-    
+
     for i in range (3):
 
         # Extract the coordinates of the foreground (non-zero) pixels
         gt_coords = np.column_stack(np.where(groundtruth[i] > 0))
         pred_coords = np.column_stack(np.where(bin_pred > 0))
-    
+
         # Calculate the directed Hausdorff distance in both directions
         forward_hausdorff = directed_hausdorff(gt_coords, pred_coords)[0]
         backward_hausdorff = directed_hausdorff(pred_coords, gt_coords)[0]
-    
+
         # The Hausdorff distance is the maximum of the two directed distances
         hausdorff_distance = max(forward_hausdorff, backward_hausdorff)
         hausdorff_distances[i+1] = hausdorff_distance
 
-    
+
     return hausdorff_distances
 
 '''
@@ -215,12 +203,12 @@ def compute_auroc(groundtruth, prob_pred):
     auroc_dict = {}
     organs =  {1: 'panc', 2: 'kidn', 3: 'livr'}
     num_classes = groundtruth.shape[0]  # Number of classes (3 for pancreas, kidney, liver)
-    
+
     for i in range(num_classes):
         # Flatten the groundtruth for class i and the predicted probabilities for class i
         gt_class = (groundtruth[i] > 0).astype(np.uint8).flatten()  # Convert to binary groundtruth
         prob_class = prob_pred[i].flatten()  # Flatten the probabilities for class i
-        
+
         # Calculate AUROC score for class i
         auroc_score = roc_auc_score(gt_class, prob_class)
         auroc_dict[organs[i + 1]] = auroc_score
@@ -394,7 +382,6 @@ def calib_stats(correct, calib_confids):
     return bin_discrepancies, num_nonzero
 
 def multirater_ace(annotations_list, bin_pred, prob_pred):
-
     ace_dict = {1: 0, 2: 0, 3: 0}
     for i in range(3):
         gt_i = annotations_list[i]
@@ -518,7 +505,7 @@ def compute_ncc(groundtruth, prob_pred):
     :param pred_unc_map: the predicted uncertainty map
     :return: float: the normalized cross correlation between gt and predicted uncertainty map
     """
-    
+
     ncc_dict = {}
     organ_name = ['GT1-2', 'GT1-3', 'GT2-3']
     pairs = [(0, 1), (0, 2), (1, 2)]
@@ -582,7 +569,7 @@ def sitk_to_array(sitk_img):
     return array.astype(np.float32)
 
 
-def getting_gt(gt_folder): 
+def getting_gt(gt_folder):
     gt_files = sorted([f for f in os.listdir(gt_folder) if "annotation" in f])
     ct_file = next(f for f in os.listdir(gt_folder) if "image" in f)
 
@@ -605,7 +592,7 @@ def files_to_data(result_file, prob_file):
     bin_pred_img = sitk.ReadImage(result_file)
     bin_pred = sitk_to_array(bin_pred_img).astype(np.uint8)
 
-    # Dowloading probabilities (shape: (classes, slices, H, W)) and permutation 
+    # Dowloading probabilities (shape: (classes, slices, H, W)) and permutation
     prob_data = np.load(prob_file)
     prob_array = prob_data[prob_data.files[0]]  # shape: (C, Z, H, W)
     # Extraction of the 3 classes in shape (slices, H, W)
@@ -745,26 +732,3 @@ def apply_metrics(l_model_files, ct_image, annotations):
         "NCC_GT2-3": ncc_dict["GT2-3"],
         "NCC_mean": ncc_dict["mean"]
     }
-
-
-
-
-#BODY
-"""
-Gather the input locations and apply the metrics to all predictions.
-The input folder should be looking like this : 
--- Folder   -- Model_01   -- pred_01.nii.gz
-                            -- pred_prob_01.npz
-                            -- GT_01                -- image.nii.gz
-                                                    -- annotation_1.nii.gz
-                                                    -- annotation_2.nii.gz
-                                                    -- annotation_3.nii.gz
-            -- Model_02   -- pred_02.nii.gz
-            ...
-            ...
-            ...
-            -- GT   -- image.nii.gz
-                    -- annotation_1.nii.gz
-                    -- annotation_2.nii.gz
-                    -- annotation_3.nii.gz
-"""
