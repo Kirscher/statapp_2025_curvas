@@ -174,7 +174,6 @@ def compute_hausdorff_distances (groundtruth, bin_pred):
     @output hausdorff_distance
     """
     hausdorff_distances = {}
-    organs = ['panc', 'kidn', 'livr']
     
     for i in range (3):
 
@@ -719,9 +718,9 @@ def apply_metrics(l_model_files, ct_image, annotations):
         "CONF_livr": conf_scores["livr"],
         "Entropy_GT": entropy_gt,
         "Entropy_Pred": entropy_pred,
-        "Hausdorff_panc": hausdorff_distances[1],
-        "Hausdorff_kidn": hausdorff_distances[2],
-        "Hausdorff_livr": hausdorff_distances[3],
+        "Hausdorff_1": hausdorff_distances[1],
+        "Hausdorff_2": hausdorff_distances[2],
+        "Hausdorff_3": hausdorff_distances[3],
         "ECE_1": ece_scores[1],
         "ECE_2": ece_scores[2],
         "ECE_3": ece_scores[3],
