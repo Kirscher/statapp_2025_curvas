@@ -131,4 +131,4 @@ df.to_csv("metrics.csv", index=False)
 print(df)
 
 # Output in s3
-os.system(output_command)
+subprocess.run(output_command, env=env)
