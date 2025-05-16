@@ -122,7 +122,7 @@ def get_available_models() -> List[str]:
 
 def download_curvas_files(patient_id: str, model_name: str, output_dir: Path, verbose: bool = False, progress_tracker = None) -> bool:
     """
-    Download CURVAS_*.pkl and CURVAS_*.npz files for a patient and model.
+    Download all files for a patient and model.
 
     Args:
         patient_id (str): Patient ID (e.g., 001)
@@ -147,88 +147,61 @@ def download_curvas_files(patient_id: str, model_name: str, output_dir: Path, ve
     # List contents of the output directory
     contents = s3_utils.list_output_directory()
 
-    # Find the CURVAS files
-    pkl_pattern = re.compile(r'^' + re.escape(remote_dir) + r'/CURVAS_' + re.escape(patient_id) + r'\.pkl$')
-    npz_pattern = re.compile(r'^' + re.escape(remote_dir) + r'/CURVAS_' + re.escape(patient_id) + r'\.npz$')
-    
-    pkl_file = None
-    npz_file = None
+    # Find all files for this patient and model
+    patient_files = []
+    pattern = re.compile(r'^' + re.escape(remote_dir) + r'/')
 
     for item in contents:
         key = item['Key']
-        if pkl_pattern.match(key):
-            pkl_file = key
-        elif npz_pattern.match(key):
-            npz_file = key
+        if pattern.match(key):
+            patient_files.append(key)
 
-    if not pkl_file or not npz_file:
-        logger.error(f"CURVAS files not found for patient UKCHLL{patient_id} and model {model_name}")
+    if not patient_files:
+        logger.error(f"No files found for patient UKCHLL{patient_id} and model {model_name}")
         return False
 
     # Download the files
     success = True
-    
+
     # Start time for tracking
     start_time = time.time()
 
-    # Get the file sizes
-    bucket, pkl_key = s3_utils.parse_remote_path(pkl_file)
-    pkl_size = s3_utils.get_file_size(bucket, pkl_key)
-    
-    bucket, npz_key = s3_utils.parse_remote_path(npz_file)
-    npz_size = s3_utils.get_file_size(bucket, npz_key)
+    # Download each file
+    for file_path in patient_files:
+        # Get the file name from the path
+        file_name = os.path.basename(file_path)
 
-    # Download PKL file
-    local_pkl_path = model_dir / f"CURVAS_{patient_id}.pkl"
-    logger.info(f"Downloading PKL file for patient UKCHLL{patient_id} and model {model_name}...")
+        # Get the file size
+        bucket, key = s3_utils.parse_remote_path(file_path)
+        file_size = s3_utils.get_file_size(bucket, key)
 
-    # Create a callback function for progress updates
-    def pkl_progress_callback(bytes_transferred):
-        if progress_tracker:
-            progress_tracker.update_file_progress(
-                bytes_transferred, 
-                pkl_size, 
-                f"Downloading PKL for patient UKCHLL{patient_id} and model {model_name}", 
-                start_time
-            )
+        # Create the local path
+        local_file_path = model_dir / file_name
 
-    # Download the PKL file with progress tracking
-    pkl_success = s3_utils.download_file(
-        remote_path=pkl_file,
-        local_path=str(local_pkl_path),
-        callback=pkl_progress_callback
-    )
+        logger.info(f"Downloading {file_name} for patient UKCHLL{patient_id} and model {model_name}...")
 
-    if not pkl_success:
-        logger.error(f"Failed to download PKL file for patient UKCHLL{patient_id} and model {model_name}")
-        success = False
+        # Create a callback function for progress updates
+        def file_progress_callback(bytes_transferred):
+            if progress_tracker:
+                progress_tracker.update_file_progress(
+                    bytes_transferred, 
+                    file_size, 
+                    f"Downloading {file_name} for patient UKCHLL{patient_id} and model {model_name}", 
+                    start_time
+                )
 
-    # Download NPZ file
-    local_npz_path = model_dir / f"CURVAS_{patient_id}.npz"
-    logger.info(f"Downloading NPZ file for patient UKCHLL{patient_id} and model {model_name}...")
+        # Download the file with progress tracking
+        file_success = s3_utils.download_file(
+            remote_path=file_path,
+            local_path=str(local_file_path),
+            callback=file_progress_callback
+        )
 
-    # Create a callback function for progress updates
-    def npz_progress_callback(bytes_transferred):
-        if progress_tracker:
-            progress_tracker.update_file_progress(
-                bytes_transferred, 
-                npz_size, 
-                f"Downloading NPZ for patient UKCHLL{patient_id} and model {model_name}", 
-                start_time
-            )
+        if not file_success:
+            logger.error(f"Failed to download {file_name} for patient UKCHLL{patient_id} and model {model_name}")
+            success = False
 
-    # Download the NPZ file with progress tracking
-    npz_success = s3_utils.download_file(
-        remote_path=npz_file,
-        local_path=str(local_npz_path),
-        callback=npz_progress_callback
-    )
-
-    if not npz_success:
-        logger.error(f"Failed to download NPZ file for patient UKCHLL{patient_id} and model {model_name}")
-        success = False
-
-    logger.info(f"CURVAS files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
+    logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
     return success
 
 @app.command()
@@ -305,33 +278,81 @@ def ensemble(
     # Process each patient and model
     logger.info(f"Processing {len(selected_patients)} patients with {len(selected_models)} models")
 
-    # Define a function to get the "size" of a patient-model pair (we'll just use 1 for each pair)
+    # Define a function to count the number of files for a patient-model pair
+    def count_pair_files(pair):
+        patient_id, model_name = pair
+
+        # Define the remote path
+        remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
+
+        # List contents of the output directory
+        contents = s3_utils.list_output_directory()
+
+        # Find all files for this patient and model
+        pattern = re.compile(r'^' + re.escape(remote_dir) + r'/')
+        file_count = 0
+
+        for item in contents:
+            key = item['Key']
+            if pattern.match(key):
+                file_count += 1
+
+        return file_count
+
+    # Create a list of patient-model pairs to process
+    pairs = [(patient, model) for patient in selected_patients for model in selected_models]
+
+    # Calculate the total number of files to download
+    total_files = sum(count_pair_files(pair) for pair in pairs)
+
+    logger.info(f"This will download a total of {total_files} files across {len(pairs)} patient-model pairs")
+
+    # Define a function to get the combined size of all files for a patient-model pair
     def get_pair_size(pair):
-        return 1
+        patient_id, model_name = pair
+
+        # Define the remote path
+        remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
+
+        # List contents of the output directory
+        contents = s3_utils.list_output_directory()
+
+        # Find all files for this patient and model
+        pattern = re.compile(r'^' + re.escape(remote_dir) + r'/')
+        total_size = 0
+
+        for item in contents:
+            key = item['Key']
+            if pattern.match(key):
+                # Get the file size
+                bucket, file_key = s3_utils.parse_remote_path(key)
+                file_size = s3_utils.get_file_size(bucket, file_key)
+                total_size += file_size
+
+        return total_size
 
     # Define a function to process a patient-model pair
     def process_pair(pair, progress_tracker):
         patient_id, model_name = pair
-        progress_tracker.start_file(pair, f"Processing patient UKCHLL{patient_id} with model {model_name}", 1)
+        # Get the actual size of the pair
+        pair_size = get_pair_size(pair)
+        progress_tracker.start_file(pair, f"Processing patient UKCHLL{patient_id} with model {model_name}", pair_size)
         logger.info(f"Processing patient UKCHLL{patient_id} with model {model_name}...")
 
         try:
             # Download CURVAS files
             success = download_curvas_files(patient_id, model_name, ensembling_dir, verbose, progress_tracker)
-            
+
             if success:
-                progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id} with model {model_name}", 1, time.time(), success=True)
+                progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id} with model {model_name}", pair_size, time.time(), success=True)
             else:
-                progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id} with model {model_name}", 1, time.time(), success=False)
-        
+                progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id} with model {model_name}", pair_size, time.time(), success=False)
+
         except Exception as e:
             logger.error(f"Error processing patient UKCHLL{patient_id} with model {model_name}: {str(e)}")
-            progress_tracker.complete_file(f"Error processing patient UKCHLL{patient_id} with model {model_name}", 1, time.time(), success=False)
-
-    # Create a list of patient-model pairs to process
-    pairs = [(patient, model) for patient in selected_patients for model in selected_models]
+            progress_tracker.complete_file(f"Error processing patient UKCHLL{patient_id} with model {model_name}", pair_size, time.time(), success=False)
 
     # Track progress of processing pairs
-    track_progress(pairs, get_pair_size, process_pair)
+    track_progress(pairs, get_pair_size, process_pair, total_files)
 
     logger.info(Text("Ensembling completed successfully", style="bold green"))

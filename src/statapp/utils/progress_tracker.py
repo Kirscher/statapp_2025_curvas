@@ -28,17 +28,19 @@ class ProgressTracker:
     for updating progress during file operations.
     """
 
-    def __init__(self, files: List[Any], get_file_size: Callable[[Any], int]):
+    def __init__(self, files: List[Any], get_file_size: Callable[[Any], int], total_files: int = None):
         """
         Initialize the progress tracker.
 
         Args:
             files: List of files to process
             get_file_size: Function to get the size of a file
+            total_files: Total number of files to process (if different from len(files))
         """
         self.files = files
         self.get_file_size = get_file_size
         self.progress = create_dual_progress()
+        self.total_files = total_files if total_files is not None else len(files)
 
         # Calculate total size
         self.total_size = sum(get_file_size(file) for file in files)
@@ -125,7 +127,7 @@ class ProgressTracker:
 
         self.progress.update(
             self.overall_task, 
-            description=f"[bold blue]Overall Progress ({current_files_completed}/{len(self.files)} files)",
+            description=f"[bold blue]Overall Progress ({current_files_completed}/{self.total_files} files)",
             size=f"{humanize.naturalsize(self.uploaded_size, binary=True)}/{self.total_size_human}",
             elapsed=total_elapsed_str
         )
@@ -241,7 +243,7 @@ class ProgressTracker:
         self.progress.update(
             self.overall_task, 
             advance=1,
-            description=f"[bold blue]Overall Progress ({current_files_completed}/{len(self.files)} files)",
+            description=f"[bold blue]Overall Progress ({current_files_completed}/{self.total_files} files)",
             size=f"{humanize.naturalsize(self.uploaded_size, binary=True)}/{self.total_size_human}",
             elapsed=total_elapsed_str
         )
@@ -291,7 +293,7 @@ class ProgressTracker:
             self.progress.update(
                 self.overall_task, 
                 completed=total_progress_percent,
-                description=f"[bold blue]Overall Progress ({current_files_completed}/{len(self.files)} files)",
+                description=f"[bold blue]Overall Progress ({current_files_completed}/{self.total_files} files)",
                 size=f"{humanize.naturalsize(total_progress_bytes, binary=True)}/{self.total_size_human}",
                 elapsed=total_elapsed_str
             )
@@ -299,7 +301,7 @@ class ProgressTracker:
             # Sleep for 1 second
             time.sleep(1)
 
-def track_progress(files: List[Any], get_file_size: Callable[[Any], int], process_file: Callable[[Any, ProgressTracker], None]) -> None:
+def track_progress(files: List[Any], get_file_size: Callable[[Any], int], process_file: Callable[[Any, ProgressTracker], None], total_files: int = None) -> None:
     """
     Track progress of processing a list of files.
 
@@ -307,9 +309,10 @@ def track_progress(files: List[Any], get_file_size: Callable[[Any], int], proces
         files: List of files to process
         get_file_size: Function to get the size of a file
         process_file: Function to process a file, takes a file and a ProgressTracker
+        total_files: Total number of files to process (if different from len(files))
     """
     # Create progress tracker
-    tracker = ProgressTracker(files, get_file_size)
+    tracker = ProgressTracker(files, get_file_size, total_files)
 
     # Start tracking progress
     with Live(tracker.progress, console=console, refresh_per_second=10, transient=True):
