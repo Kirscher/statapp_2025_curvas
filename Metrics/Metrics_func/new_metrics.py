@@ -11,7 +11,7 @@ It requires a folder with for each patient a folder containing GT and prediction
 """
 The needed imports for the metrics computation.
 Please run : 
-pip install scikit-learn torch scipy monai torchmetrics numba
+pip install scikit-learn torch scipy monai torchmetrics numba boto3
 to install the libraries that are not automatically implemented by onyxia.
 """
 
@@ -656,7 +656,7 @@ def apply_metrics(l_model_files, ct_image, annotations):
     Apply selected metrics with simple and clear parallelization.
     '''
     # Extract patient ID
-    ct_name = re.findall(r"\/([^\/]+)$", l_patient_files["pred"])[0]
+    ct_name = l_model_files["name"]
 
     # Load and preprocess data
     results = files_to_data(

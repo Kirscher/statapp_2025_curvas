@@ -2,6 +2,7 @@ import os
 from Metrics_func.new_metrics import apply_metrics, getting_gt
 import boto3
 import pandas as pd
+import re
 
 # inputs
 aws_access_key_id = "MPOO6QLTXGQVW61QK4ZE"#input(str("aws_access_key_id : "))
@@ -27,8 +28,8 @@ output_command = f"aws s3 cp ./metrics.csv s3://metrics_results/{patient}/metric
 
 # s3.upload_file("metrics.csv", "projet-statapp-segmedic", "metrics_results/patient/metrics.csv")
 
-os.system(pred_command)
-os.system(gt_command)
+#os.system(pred_command)
+#os.system(gt_command)
 
 
 # Locating data
@@ -89,8 +90,9 @@ df = pd.DataFrame(columns=[
 
 # Computing the metrics
 #TODO, prio ensemble
+ct_img, annot = getting_gt(gt_path)
 for f in l_models: 
-    current_line = pd.DataFrame([apply_metrics(f, getting_gt(gt_path))])
+    current_line = pd.DataFrame([apply_metrics(f, ct_img, annot)])
     df = pd.concat([df, current_line], ignore_index=True)
 
 # Export data
