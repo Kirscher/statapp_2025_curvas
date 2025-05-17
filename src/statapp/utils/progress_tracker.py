@@ -254,7 +254,6 @@ class ProgressTracker:
         # Update overall progress display
         self.progress.update(
             self.overall_task, 
-            advance=1,
             description=f"[bold blue]Overall Progress ({current_files_completed}/{self.total_files} files)",
             size=f"{humanize.naturalsize(self.uploaded_size, binary=True)}/{self.total_size_human}",
             elapsed=total_elapsed_str

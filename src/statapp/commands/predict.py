@@ -656,8 +656,11 @@ def predict(
                     logger.info(f"Uploading results for patient UKCHLL{patient_id} to S3 done!")
 
 
-                upload_thread = threading.Thread(target=upload, name="Downloader", args=())
+                upload_thread = threading.Thread(target=upload, name="Uploader", args=())
                 upload_thread.start()
+
+                # Wait for the upload to complete before continuing
+                upload_thread.join()
 
                 # Mark patient as completed
                 progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id}", patient_size, time.time(), success=True)
