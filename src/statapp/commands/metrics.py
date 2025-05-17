@@ -652,8 +652,13 @@ def compute_metrics(
             patient_metrics_dir = metrics_dir / f"UKCHLL{patient_id}"
             os.makedirs(patient_metrics_dir, exist_ok=True)
 
-            # Create progress tracker with empty files list and dummy get_file_size function
-            progress_tracker = ProgressTracker(files=[], get_file_size=lambda _: 0)
+            # Calculate total number of files to download
+            # Ground truth files: 1 image file + 3 annotation files = 4 files
+            # Model files: 1 prediction file + 1 probability file = 2 files per model
+            total_files = 4 + (len(selected_models) * 2)
+
+            # Create progress tracker with the correct total number of files
+            progress_tracker = ProgressTracker(files=[], get_file_size=lambda _: 0, total_files=total_files)
             progress_tracker.start()  # Initialize progress bars
 
             # Download ground truth files once for this patient
