@@ -20,7 +20,7 @@ console = Console()
 
 
 name = "ENSAE 2025 applied statistics project"
-version = "Version 0.1.0"
+version = "Version 1.0.0"
 
 def info(text: Text) -> None:
     """

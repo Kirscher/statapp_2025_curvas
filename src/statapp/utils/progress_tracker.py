@@ -65,6 +65,9 @@ class ProgressTracker:
         self.overall_task = None
         self.file_task = None
 
+        # Live context manager for displaying progress
+        self.live = None
+
     def start(self) -> None:
         """
         Start tracking progress.
@@ -92,6 +95,10 @@ class ProgressTracker:
         # Record start time
         self.total_start_time = time.time()
 
+        # Create and start the Live context manager
+        self.live = Live(self.progress, console=console, refresh_per_second=10, transient=True)
+        self.live.start()
+
         # Start background thread for updating overall progress
         self.progress_thread = threading.Thread(target=self._update_overall_progress)
         self.progress_thread.daemon = True  # Thread will exit when main thread exits
@@ -101,12 +108,17 @@ class ProgressTracker:
         """
         Stop tracking progress.
 
-        This method stops the background thread for updating the overall progress bar.
+        This method stops the background thread for updating the overall progress bar
+        and stops the Live context manager.
         """
         # Stop the background thread
         self.stop_thread.set()
         if self.progress_thread and self.progress_thread.is_alive():
             self.progress_thread.join(timeout=2)  # Wait for the thread to finish, but not indefinitely
+
+        # Stop the Live context manager
+        if self.live:
+            self.live.stop()
 
     def start_file(self, file: Any, display_path: str, file_size: int) -> None:
         """
@@ -314,14 +326,13 @@ def track_progress(files: List[Any], get_file_size: Callable[[Any], int], proces
     # Create progress tracker
     tracker = ProgressTracker(files, get_file_size, total_files)
 
-    # Start tracking progress
-    with Live(tracker.progress, console=console, refresh_per_second=10, transient=True):
-        tracker.start()
+    # Start tracking progress (this now creates its own Live context manager)
+    tracker.start()
 
-        try:
-            # Process each file
-            for file in files:
-                process_file(file, tracker)
-        finally:
-            # Stop tracking progress
-            tracker.stop()
+    try:
+        # Process each file
+        for file in files:
+            process_file(file, tracker)
+    finally:
+        # Stop tracking progress (this now stops the Live context manager)
+        tracker.stop()

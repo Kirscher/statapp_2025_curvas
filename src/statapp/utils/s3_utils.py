@@ -431,10 +431,20 @@ def parse_remote_path(remote_path: str, local_path: str = None) -> Tuple[str, st
         Tuple[str, str]: Bucket and key
     """
     # Check if the remote path starts with the artifacts, data, output, or metrics directory
-    if remote_path.startswith(os.environ['S3_ARTIFACTS_DIR']) or remote_path.startswith(os.environ['S3_DATA_DIR']) or remote_path.startswith(os.environ['S3_OUTPUT_DIR']) or remote_path.startswith(os.environ['S3_METRICS_DIR']):
+    if remote_path.startswith(os.environ['S3_ARTIFACTS_DIR']):
         # Use the correct bucket name from the environment variable
         bucket = os.environ['S3_BUCKET']
-        key = remote_path
+        # Remove the environment variable prefix to get the correct key
+        key = remote_path[len(os.environ['S3_ARTIFACTS_DIR']):].lstrip('/')
+    elif remote_path.startswith(os.environ['S3_DATA_DIR']):
+        bucket = os.environ['S3_BUCKET']
+        key = remote_path[len(os.environ['S3_DATA_DIR']):].lstrip('/')
+    elif remote_path.startswith(os.environ['S3_OUTPUT_DIR']):
+        bucket = os.environ['S3_BUCKET']
+        key = remote_path[len(os.environ['S3_OUTPUT_DIR']):].lstrip('/')
+    elif remote_path.startswith(os.environ['S3_METRICS_DIR']):
+        bucket = os.environ['S3_BUCKET']
+        key = remote_path[len(os.environ['S3_METRICS_DIR']):].lstrip('/')
     else:
         # Original behavior for other paths
         parts = remote_path.split('/', 1)

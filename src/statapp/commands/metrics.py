@@ -11,18 +11,18 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import List, Union, Literal, Optional
-import pandas as pd
+from typing import List, Union, Literal, Dict, Any, Optional
 
+import pandas as pd
 import typer
 from rich.text import Text
 
-from statapp.utils import s3_utils
-from statapp.utils.progress_tracker import track_progress
-from statapp.utils.utils import info, setup_logging
-from statapp.utils.upload_utils import upload_directory_to_s3
 from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 from statapp.core.metrics import apply_metrics, getting_gt
+from statapp.utils import s3_utils
+from statapp.utils.progress_tracker import ProgressTracker
+from statapp.utils.upload_utils import upload_directory_to_s3
+from statapp.utils.utils import info, setup_logging
 
 app = typer.Typer()
 
@@ -96,6 +96,7 @@ def get_selected_patients(patients: Union[List[str], Literal["all", "train", "va
 
     return selected_patients
 
+
 def get_available_models() -> List[str]:
     """
     Get a list of available models from S3.
@@ -121,125 +122,417 @@ def get_available_models() -> List[str]:
 
     return sorted(list(available_models))
 
-def download_patient_data(patient_id: str, model_name: str, local_dir: Path, verbose: bool = False, progress_tracker = None) -> dict:
+
+def find_ground_truth_files(patient_id: str, verbose: bool = False) -> Dict[str, str]:
     """
-    Download patient data and model predictions from S3.
+    Find ground truth files for a patient.
 
     Args:
-        patient_id (str): Patient ID (e.g., 001)
-        model_name (str): Model name (e.g., anno1_init112233_foldall)
-        local_dir (Path): Local directory to download the data to
+        patient_id (str): Patient ID (e.g., 075)
         verbose (bool): Enable verbose logging
-        progress_tracker: Optional progress tracker instance
 
     Returns:
-        dict: Dictionary with paths to downloaded files
+        Dict[str, str]: Dictionary with paths to ground truth files
     """
     logger = setup_logging(verbose)
 
-    # Create patient and model directories
-    patient_dir = local_dir / f"UKCHLL{patient_id}"
-    model_dir = patient_dir / model_name
-    gt_dir = patient_dir / f"{patient_id}_GT"
-
-    os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(gt_dir, exist_ok=True)
-
-    # Define the remote paths
-    pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
+    # Define the remote path
     gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{patient_id}"
 
-    # List contents of the directories
-    output_contents = s3_utils.list_output_directory()
+    # List contents of the data directory
     data_contents = s3_utils.list_data_directory()
 
-    # Find prediction and probability files
-    pred_file = None
-    prob_file = None
-    pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
-    prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
-
-    for item in output_contents:
-        key = item['Key']
-        if pred_pattern.match(key):
-            pred_file = key
-        elif prob_pattern.match(key):
-            prob_file = key
-
-    if not pred_file or not prob_file:
-        logger.error(f"Prediction or probability file not found for patient UKCHLL{patient_id} and model {model_name}")
-        return None
-
-    # Find ground truth files
+    # Find ground truth files using the standardized naming conventions
     gt_files = []
     image_file = None
-    gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
+    gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation_[1-3]\.nii\.gz$')
     image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
 
     for item in data_contents:
         key = item['Key']
         if gt_pattern.match(key):
             gt_files.append(key)
+            logger.info(f"Found ground truth file: {key}")
         elif image_pattern.match(key):
             image_file = key
+            logger.info(f"Found image file: {key}")
 
-    if not gt_files or not image_file:
-        logger.error(f"Ground truth or image file not found for patient UKCHLL{patient_id}")
-        return None
+    # If we don't have exactly 3 ground truth files or an image file, we can't proceed
+    if len(gt_files) != 3 or not image_file:
+        logger.error(f"Ground truth files or image file not found for patient UKCHLL{patient_id}")
+        logger.error(f"Found {len(gt_files)} ground truth files, expected 3")
+        return {}
 
-    # Download files
-    files_to_download = [
-        (pred_file, model_dir / os.path.basename(pred_file)),
-        (prob_file, model_dir / os.path.basename(prob_file)),
-        (image_file, gt_dir / os.path.basename(image_file))
-    ]
+    return {
+        "gt_files": gt_files,
+        "image_file": image_file
+    }
 
-    for gt_file in gt_files:
-        files_to_download.append((gt_file, gt_dir / os.path.basename(gt_file)))
 
-    # Start time for tracking
-    start_time = time.time()
+def download_ground_truth(patient_id: str, local_dir: Path, verbose: bool = False, 
+                         progress_tracker: Optional[ProgressTracker] = None) -> Dict[str, Any]:
+    """
+    Download ground truth files for a patient.
+
+    Args:
+        patient_id (str): Patient ID (e.g., 075)
+        local_dir (Path): Local directory to download the data to
+        verbose (bool): Enable verbose logging
+        progress_tracker: Optional progress tracker instance
+
+    Returns:
+        Dict[str, Any]: Dictionary with paths to downloaded files and loaded data
+    """
+    logger = setup_logging(verbose)
+
+    # Create patient and ground truth directories
+    patient_dir = local_dir / f"UKCHLL{patient_id}"
+    gt_dir = patient_dir / f"{patient_id}_GT"
+    os.makedirs(gt_dir, exist_ok=True)
+
+    # Find ground truth files
+    gt_files_dict = find_ground_truth_files(patient_id, verbose)
+    if not gt_files_dict:
+        return {}
+
+    # Prepare files to download with proper remote_path format
+    bucket = os.environ['S3_BUCKET']
+    files_to_download = []
+
+    # Add image file
+    image_key = gt_files_dict["image_file"]
+    image_local_path = gt_dir / os.path.basename(image_key)
+    files_to_download.append({
+        'type': 'image',
+        'patient': patient_id,
+        'remote_path': f"{bucket}/{image_key}",
+        'local_path': str(image_local_path),
+        'display_name': f"image for UKCHLL{patient_id}"
+    })
+
+    # Add ground truth files
+    for gt_file in gt_files_dict["gt_files"]:
+        gt_local_path = gt_dir / os.path.basename(gt_file)
+        files_to_download.append({
+            'type': 'annotation',
+            'patient': patient_id,
+            'remote_path': f"{bucket}/{gt_file}",
+            'local_path': str(gt_local_path),
+            'display_name': f"annotation for UKCHLL{patient_id}"
+        })
+
+    # Function to get file size
+    def get_file_size(file_info):
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key)
 
     # Download each file
-    for remote_path, local_path in files_to_download:
-        # Get the file size
-        bucket, key = s3_utils.parse_remote_path(remote_path)
-        file_size = s3_utils.get_file_size(bucket, key)
+    for file_info in files_to_download:
+        try:
+            # Get the file size
+            file_size = get_file_size(file_info)
+            if file_size == 0:
+                logger.warning(f"File size is 0 for {file_info['remote_path']}, file may not exist")
+                # Instead of aborting, try to download the file anyway
+                # The file might exist but head_object might be failing
+                file_size = 1024  # Set a default size for progress tracking
 
-        # Create a callback function for progress updates
-        def progress_callback(bytes_transferred):
+            # Record start time
+            start_time = time.time()
+
+            # Initialize file progress tracking
             if progress_tracker:
-                progress_tracker.update_file_progress(
-                    bytes_transferred, 
-                    file_size, 
-                    f"Downloading {os.path.basename(remote_path)} for patient UKCHLL{patient_id}", 
-                    start_time
+                progress_tracker.start_file(
+                    file_info['remote_path'],
+                    f"Downloading {file_info['display_name']}",
+                    file_size
                 )
 
-        # Download the file with progress tracking
-        success = s3_utils.download_file(
-            remote_path=remote_path,
-            local_path=str(local_path),
-            callback=progress_callback
-        )
+            # Create a callback function for progress updates
+            def progress_callback(bytes_transferred):
+                if progress_tracker:
+                    progress_tracker.update_file_progress(
+                        bytes_transferred,
+                        file_size,
+                        f"Downloading {file_info['display_name']}",
+                        start_time
+                    )
 
-        if not success:
-            logger.error(f"Failed to download {os.path.basename(remote_path)} for patient UKCHLL{patient_id}")
-            return None
+            # Download the file with progress tracking
+            success = s3_utils.download_file(
+                remote_path=file_info['remote_path'],
+                local_path=file_info['local_path'],
+                callback=progress_callback
+            )
 
-    logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
+            # Mark file as complete in progress tracker
+            if progress_tracker:
+                if success:
+                    progress_tracker.complete_file(
+                        f"Downloaded {file_info['display_name']}",
+                        file_size,
+                        start_time,
+                        success=True
+                    )
+                else:
+                    progress_tracker.complete_file(
+                        f"Failed to download {file_info['display_name']}",
+                        file_size,
+                        start_time,
+                        success=False
+                    )
 
-    # Return paths to downloaded files
+            if not success:
+                logger.error(f"Failed to download {file_info['display_name']}")
+                return {}
+        except Exception as e:
+            logger.error(f"Error downloading file from {file_info['remote_path']} to {file_info['local_path']}: {str(e)}")
+            # Mark file as failed in progress tracker
+            if progress_tracker:
+                progress_tracker.complete_file(
+                    f"Error downloading {file_info['display_name']}",
+                    file_size,
+                    start_time,
+                    success=False
+                )
+            return {}
+
+    logger.info(f"All ground truth files downloaded successfully for patient UKCHLL{patient_id}")
+
+    # Load ground truth data
+    try:
+        ct_image, annotations = getting_gt(str(gt_dir))
+        logger.info(f"Ground truth data loaded successfully for patient UKCHLL{patient_id}")
+    except Exception as e:
+        logger.error(f"Error loading ground truth data for patient UKCHLL{patient_id}: {str(e)}")
+        return {}
+
     return {
-        "pred": str(model_dir / os.path.basename(pred_file)),
-        "prob": str(model_dir / os.path.basename(prob_file)),
-        "name": model_name,
-        "gt_dir": str(gt_dir)
+        "gt_dir": str(gt_dir),
+        "ct_image": ct_image,
+        "annotations": annotations
     }
+
+
+def find_model_files(patient_id: str, model_name: str, verbose: bool = False) -> Dict[str, str]:
+    """
+    Find model prediction and probability files for a patient and model.
+
+    Args:
+        patient_id (str): Patient ID (e.g., 075)
+        model_name (str): Model name (e.g., anno1_init112233_foldall)
+        verbose (bool): Enable verbose logging
+
+    Returns:
+        Dict[str, str]: Dictionary with paths to model files
+    """
+    logger = setup_logging(verbose)
+
+    # Define the remote path
+    pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
+
+    # List contents of the output directory
+    output_contents = s3_utils.list_output_directory()
+
+    # Find prediction and probability files based on the standardized naming conventions
+    pred_file = None
+    prob_file = None
+
+    # Define patterns for the standardized file naming conventions
+    pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
+    curvas_nii_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/CURVAS_' + re.escape(patient_id) + r'\.nii\.gz$')
+    curvas_npz_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/CURVAS_' + re.escape(patient_id) + r'\.npz$')
+
+    # Collect all .nii.gz files as fallback
+    nii_files = []
+
+    for item in output_contents:
+        key = item['Key']
+        if pred_pattern.match(key):
+            pred_file = key
+            logger.info(f"Found prediction file: {key}")
+        elif curvas_nii_pattern.match(key):
+            # CURVAS .nii.gz file can be used as prediction file
+            pred_file = key
+            logger.info(f"Found CURVAS .nii.gz file: {key}")
+        elif curvas_npz_pattern.match(key):
+            # CURVAS .npz file is used as probability file
+            prob_file = key
+            logger.info(f"Found CURVAS .npz file: {key}")
+        elif key.endswith('.nii.gz') and key.startswith(pred_remote_dir):
+            nii_files.append(key)
+            logger.info(f"Found .nii.gz file: {key}")
+
+    # If we didn't find a specific prediction file, try to use any .nii.gz file
+    if not pred_file and nii_files:
+        pred_file = nii_files[0]
+        logger.info(f"Using .nii.gz file as prediction: {pred_file}")
+
+    # If we still don't have a prediction file, we can't proceed
+    if not pred_file:
+        logger.error(f"Prediction file not found for patient UKCHLL{patient_id} and model {model_name}")
+        return {}
+
+    # If no CURVAS .npz file is found, look for any .npz file
+    if not prob_file:
+        npz_files = [item['Key'] for item in output_contents if item['Key'].endswith('.npz') and item['Key'].startswith(pred_remote_dir)]
+        if npz_files:
+            prob_file = npz_files[0]
+            logger.info(f"Using .npz file as probability file: {prob_file}")
+        else:
+            # If no .npz file is found, we can't proceed
+            logger.error(f"Probability file not found for patient UKCHLL{patient_id} and model {model_name}")
+            return {}
+
+    return {
+        "pred_file": pred_file,
+        "prob_file": prob_file
+    }
+
+
+def download_model_files(patient_id: str, model_name: str, local_dir: Path, verbose: bool = False,
+                        progress_tracker: Optional[ProgressTracker] = None) -> Dict[str, str]:
+    """
+    Download model prediction and probability files for a patient and model.
+
+    Args:
+        patient_id (str): Patient ID (e.g., 075)
+        model_name (str): Model name (e.g., anno1_init112233_foldall)
+        local_dir (Path): Local directory to download the data to
+        verbose (bool): Enable verbose logging
+        progress_tracker: Optional progress tracker instance
+
+    Returns:
+        Dict[str, str]: Dictionary with paths to downloaded files
+    """
+    logger = setup_logging(verbose)
+
+    # Create patient and model directories
+    patient_dir = local_dir / f"UKCHLL{patient_id}"
+    model_dir = patient_dir / model_name
+    os.makedirs(model_dir, exist_ok=True)
+
+    # Find model files
+    model_files_dict = find_model_files(patient_id, model_name, verbose)
+    if not model_files_dict:
+        return {}
+
+    # Prepare files to download with proper remote_path format
+    bucket = os.environ['S3_BUCKET']
+    files_to_download = []
+
+    # Add prediction file
+    pred_key = model_files_dict["pred_file"]
+    pred_local_path = model_dir / os.path.basename(pred_key)
+    files_to_download.append({
+        'type': 'prediction',
+        'patient': patient_id,
+        'model': model_name,
+        'remote_path': f"{bucket}/{pred_key}",
+        'local_path': str(pred_local_path),
+        'display_name': f"prediction for UKCHLL{patient_id} and model {model_name}"
+    })
+
+    # Add probability file
+    prob_key = model_files_dict["prob_file"]
+    prob_local_path = model_dir / os.path.basename(prob_key)
+    files_to_download.append({
+        'type': 'probability',
+        'patient': patient_id,
+        'model': model_name,
+        'remote_path': f"{bucket}/{prob_key}",
+        'local_path': str(prob_local_path),
+        'display_name': f"probability for UKCHLL{patient_id} and model {model_name}"
+    })
+
+    # Function to get file size
+    def get_file_size(file_info):
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key)
+
+    # Download each file
+    for file_info in files_to_download:
+        try:
+            # Get the file size
+            file_size = get_file_size(file_info)
+            if file_size == 0:
+                logger.warning(f"File size is 0 for {file_info['remote_path']}, file may not exist")
+                # Instead of aborting, try to download the file anyway
+                # The file might exist but head_object might be failing
+                file_size = 1024  # Set a default size for progress tracking
+
+            # Record start time
+            start_time = time.time()
+
+            # Initialize file progress tracking
+            if progress_tracker:
+                progress_tracker.start_file(
+                    file_info['remote_path'],
+                    f"Downloading {file_info['display_name']}",
+                    file_size
+                )
+
+            # Create a callback function for progress updates
+            def progress_callback(bytes_transferred):
+                if progress_tracker:
+                    progress_tracker.update_file_progress(
+                        bytes_transferred,
+                        file_size,
+                        f"Downloading {file_info['display_name']}",
+                        start_time
+                    )
+
+            # Download the file with progress tracking
+            success = s3_utils.download_file(
+                remote_path=file_info['remote_path'],
+                local_path=file_info['local_path'],
+                callback=progress_callback
+            )
+
+            # Mark file as complete in progress tracker
+            if progress_tracker:
+                if success:
+                    progress_tracker.complete_file(
+                        f"Downloaded {file_info['display_name']}",
+                        file_size,
+                        start_time,
+                        success=True
+                    )
+                else:
+                    progress_tracker.complete_file(
+                        f"Failed to download {file_info['display_name']}",
+                        file_size,
+                        start_time,
+                        success=False
+                    )
+
+            if not success:
+                logger.error(f"Failed to download {file_info['display_name']}")
+                return {}
+        except Exception as e:
+            logger.error(f"Error downloading file from {file_info['remote_path']} to {file_info['local_path']}: {str(e)}")
+            # Mark file as failed in progress tracker
+            if progress_tracker:
+                progress_tracker.complete_file(
+                    f"Error downloading {file_info['display_name']}",
+                    file_size,
+                    start_time,
+                    success=False
+                )
+            return {}
+
+    logger.info(f"All model files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
+
+    return {
+        "pred": str(model_dir / os.path.basename(model_files_dict["pred_file"])),
+        "prob": str(model_dir / os.path.basename(model_files_dict["prob_file"])),
+        "name": model_name
+    }
+
 
 @app.command()
 def compute_metrics(
-    patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test'"),
+    patients: List[str] = typer.Argument(..., help="List of patient numbers (e.g., 075 034) or 'all', 'train', 'validation', 'test'"),
     models: List[str] = typer.Option(["all"], "-m", "--models", help="List of models to use for metrics computation (e.g., anno1_init112233_foldall) or 'all'"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
@@ -254,7 +547,7 @@ def compute_metrics(
     - 'train': Predefined training set
     - 'validation': Predefined validation set
     - 'test': Predefined test set
-    - Custom list: Specific patient numbers (e.g., 001 034)
+    - Custom list: Specific patient numbers (e.g., 075 034)
 
     Model selection options:
     - 'all': All available models
@@ -359,127 +652,46 @@ def compute_metrics(
             patient_metrics_dir = metrics_dir / f"UKCHLL{patient_id}"
             os.makedirs(patient_metrics_dir, exist_ok=True)
 
-            # Create a list of patient-model pairs to process
-            pairs = [(patient_id, model) for model in selected_models]
+            # Create progress tracker with empty files list and dummy get_file_size function
+            progress_tracker = ProgressTracker(files=[], get_file_size=lambda _: 0)
+            progress_tracker.start()  # Initialize progress bars
 
-            # Define a function to get the combined size of all files for a patient-model pair
-            def get_pair_size(pair):
-                p_id, model_name = pair
+            # Download ground truth files once for this patient
+            logger.info(f"Downloading ground truth files for patient UKCHLL{patient_id}...")
+            gt_data = download_ground_truth(patient_id, download_dir, verbose, progress_tracker)
 
-                # Define the remote paths
-                pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{p_id}/{model_name}"
-                gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{p_id}"
+            if not gt_data:
+                logger.error(f"Failed to download ground truth data for patient UKCHLL{patient_id}")
+                continue
 
-                # List contents of the directories
-                output_contents = s3_utils.list_output_directory()
-                data_contents = s3_utils.list_data_directory()
+            # Process each model for this patient
+            for model_name in selected_models:
+                logger.info(f"Processing model {model_name} for patient UKCHLL{patient_id}...")
 
-                # Count files and their sizes
-                total_size = 0
+                # Download model files
+                model_files = download_model_files(patient_id, model_name, download_dir, verbose, progress_tracker)
 
-                # Check prediction files
-                pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
-                prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
+                if not model_files:
+                    logger.error(f"Failed to download model files for patient UKCHLL{patient_id} and model {model_name}")
+                    continue
 
-                for item in output_contents:
-                    key = item['Key']
-                    if pred_pattern.match(key) or prob_pattern.match(key):
-                        bucket, file_key = s3_utils.parse_remote_path(key)
-                        file_size = s3_utils.get_file_size(bucket, file_key)
-                        total_size += file_size
-
-                # Check ground truth files
-                gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
-                image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
-
-                for item in data_contents:
-                    key = item['Key']
-                    if gt_pattern.match(key) or image_pattern.match(key):
-                        bucket, file_key = s3_utils.parse_remote_path(key)
-                        file_size = s3_utils.get_file_size(bucket, file_key)
-                        total_size += file_size
-
-                return total_size
-
-            # Define a function to process a patient-model pair
-            def process_pair(pair, progress_tracker):
-                p_id, model_name = pair
-                # Get the actual size of the pair
-                pair_size = get_pair_size(pair)
-                progress_tracker.start_file(pair, f"Processing patient UKCHLL{p_id} with model {model_name}", pair_size)
-                logger.info(f"Processing patient UKCHLL{p_id} with model {model_name}...")
+                # Add ground truth directory to model files
+                model_files["gt_dir"] = gt_data["gt_dir"]
 
                 try:
-                    # Download patient data and model predictions
-                    model_files = download_patient_data(p_id, model_name, download_dir, verbose, progress_tracker)
-
-                    if not model_files:
-                        logger.error(f"Failed to download data for patient UKCHLL{p_id} and model {model_name}")
-                        progress_tracker.complete_file(f"Failed to process patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=False)
-                        return
-
-                    # Load ground truth data
-                    ct_image, annotations = getting_gt(model_files["gt_dir"])
-
                     # Compute metrics
-                    logger.info(f"Computing metrics for patient UKCHLL{p_id} and model {model_name}...")
-                    metrics = apply_metrics(model_files, ct_image, annotations)
+                    logger.info(f"Computing metrics for patient UKCHLL{patient_id} and model {model_name}...")
+                    metrics = apply_metrics(model_files, gt_data["ct_image"], gt_data["annotations"])
 
                     # Add patient ID to metrics
-                    metrics["Patient_ID"] = p_id
+                    metrics["Patient_ID"] = patient_id
 
                     # Add metrics to DataFrame
-                    nonlocal df
                     df = pd.concat([df, pd.DataFrame([metrics])], ignore_index=True)
 
-                    progress_tracker.complete_file(f"Processed patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=True)
-
+                    logger.info(f"Metrics computed successfully for patient UKCHLL{patient_id} and model {model_name}")
                 except Exception as e:
-                    logger.error(f"Error processing patient UKCHLL{p_id} with model {model_name}: {str(e)}")
-                    progress_tracker.complete_file(f"Error processing patient UKCHLL{p_id} with model {model_name}", pair_size, time.time(), success=False)
-
-            # Calculate the total number of files to download
-            def count_pair_files(pair):
-                p_id, model_name = pair
-
-                # Define the remote paths
-                pred_remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{p_id}/{model_name}"
-                gt_remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{p_id}"
-
-                # List contents of the directories
-                output_contents = s3_utils.list_output_directory()
-                data_contents = s3_utils.list_data_directory()
-
-                # Count files
-                file_count = 0
-
-                # Check prediction files
-                pred_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/pred_.*\.nii\.gz$')
-                prob_pattern = re.compile(r'^' + re.escape(pred_remote_dir) + r'/proba_.*\.nii\.gz$')
-
-                for item in output_contents:
-                    key = item['Key']
-                    if pred_pattern.match(key) or prob_pattern.match(key):
-                        file_count += 1
-
-                # Check ground truth files
-                gt_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/annotation.*\.nii\.gz$')
-                image_pattern = re.compile(r'^' + re.escape(gt_remote_dir) + r'/image\.nii\.gz$')
-
-                for item in data_contents:
-                    key = item['Key']
-                    if gt_pattern.match(key) or image_pattern.match(key):
-                        file_count += 1
-
-                return file_count
-
-            # Calculate the total number of files to download
-            total_files = sum(count_pair_files(pair) for pair in pairs)
-
-            logger.info(f"This will download a total of {total_files} files for patient UKCHLL{patient_id}")
-
-            # Track progress of processing pairs
-            track_progress(pairs, get_pair_size, process_pair, total_files)
+                    logger.error(f"Error computing metrics for patient UKCHLL{patient_id} and model {model_name}: {str(e)}")
 
             # Save metrics for this patient
             patient_metrics_file = patient_metrics_dir / "metrics.csv"
@@ -503,6 +715,9 @@ def compute_metrics(
             upload_thread = threading.Thread(target=upload, name="Uploader", args=())
             upload_thread.start()
             upload_thread.join()  # Wait for upload to complete
+
+            # Stop the progress tracker
+            progress_tracker.stop()
 
         # Save all metrics to a single file
         all_metrics_file = metrics_dir / "metrics.csv"
