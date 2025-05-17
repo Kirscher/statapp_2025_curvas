@@ -19,6 +19,7 @@ from rich.text import Text
 
 from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 from statapp.core.metrics import apply_metrics, getting_gt
+from statapp.core.S3Singleton import S3Singleton
 from statapp.utils import s3_utils
 from statapp.utils.progress_tracker import ProgressTracker, track_progress
 from statapp.utils.upload_utils import upload_directory_to_s3
@@ -718,3 +719,96 @@ def compute_metrics(
         df.to_csv(str(all_metrics_file), index=False)
 
         logger.info(Text("Metrics computation completed successfully", style="bold green"))
+
+
+@app.command()
+def dl_metrics(
+    output_name: str = typer.Option("metrics.csv", "--output", "-o", help="Name of the output CSV file"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
+) -> None:
+    """
+    Download all metrics files from S3, merge them, and save to the working directory.
+
+    This command downloads all metrics files created by the compute-metrics command
+    from the S3_METRICS_DIR, merges them using pandas, and outputs the merged file
+    to the working directory.
+
+    Args:
+        output_name: Name of the output CSV file (default: metrics.csv)
+        verbose: Enable verbose logging
+    """
+    # Set up logger
+    logger = setup_logging(verbose)
+
+    logger.info("Starting download of metrics files from S3...")
+
+    # Create temporary directory for downloading files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        metrics_download_dir = temp_path / "metrics_download"
+
+        os.makedirs(metrics_download_dir, exist_ok=True)
+
+        # Download all metrics files from S3
+        logger.info("Downloading metrics files from S3...")
+        try:
+            # Get the S3_METRICS_DIR from environment
+            s3 = S3Singleton()
+            bucket = os.environ['S3_BUCKET']
+            metrics_dir = os.environ.get("S3_METRICS_DIR", "metrics_results")
+            remote_dir = f"{bucket}/{metrics_dir}"
+
+            # Download the directory
+            downloaded_files = s3_utils.download_directory(
+                remote_dir=remote_dir,
+                local_dir=str(metrics_download_dir),
+            )
+
+            if not downloaded_files:
+                logger.error("No metrics files found in S3")
+                return
+
+            logger.info(f"Downloaded {len(downloaded_files)} files from S3")
+
+            # Find all CSV files in the downloaded directory
+            csv_files = []
+            for root, _, files in os.walk(metrics_download_dir):
+                for file in files:
+                    if file.endswith(".csv"):
+                        csv_files.append(os.path.join(root, file))
+
+            if not csv_files:
+                logger.error("No CSV files found in the downloaded metrics")
+                return
+
+            logger.info(f"Found {len(csv_files)} CSV files to merge")
+
+            # Read and merge all CSV files
+            dfs = []
+            for csv_file in csv_files:
+                try:
+                    df = pd.read_csv(csv_file)
+                    dfs.append(df)
+                except Exception as e:
+                    logger.error(f"Error reading CSV file {csv_file}: {str(e)}")
+
+            if not dfs:
+                logger.error("No valid CSV files to merge")
+                return
+
+            # Merge all dataframes
+            merged_df = pd.concat(dfs, ignore_index=True)
+
+            # Remove duplicates if any
+            merged_df = merged_df.drop_duplicates()
+
+            # Save the merged dataframe to the working directory
+            output_path = Path.cwd() / output_name
+            merged_df.to_csv(str(output_path), index=False)
+
+            logger.info(f"Merged metrics saved to {output_path}")
+            info(Text(f"Merged metrics saved to {output_path}", style="bold green"))
+
+        except Exception as e:
+            logger.error(f"Error downloading and merging metrics: {str(e)}")
+            info(Text.assemble(("Error: ", "bold red"), (f"Failed to download and merge metrics: {str(e)}", "")))
