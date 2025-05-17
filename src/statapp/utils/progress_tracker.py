@@ -96,7 +96,7 @@ class ProgressTracker:
         self.total_start_time = time.time()
 
         # Create and start the Live context manager
-        self.live = Live(self.progress, console=console, refresh_per_second=10, transient=True)
+        self.live = Live(self.progress, console=console, refresh_per_second=2, transient=True)
         self.live.start()
 
         # Start background thread for updating overall progress
@@ -310,8 +310,8 @@ class ProgressTracker:
                 elapsed=total_elapsed_str
             )
 
-            # Sleep for 1 second
-            time.sleep(1)
+            # Sleep for 0.5 seconds to match refresh rate of 2 updates per second
+            time.sleep(0.5)
 
 def track_progress(files: List[Any], get_file_size: Callable[[Any], int], process_file: Callable[[Any, ProgressTracker], None], total_files: int = None) -> None:
     """

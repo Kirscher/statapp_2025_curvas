@@ -25,13 +25,14 @@ class S3Singleton:
     _instance: Optional['S3Singleton'] = None
     _s3_client = None
     _s3_resource = None
-    # Default transfer configuration for all uploads
+    # Default transfer configuration for all uploads - optimized for performance
     _transfer_config = TransferConfig(
-        multipart_threshold=8 * 1024 * 1024,  # 8MB - use multipart upload for anything larger than this
-        max_concurrency=10,                   # Reduced from 20 to 10 to prevent connection pool issues
-        multipart_chunksize=8 * 1024 * 1024,  # 8MB per part - larger parts for better performance
-        use_threads=True,                     # Use threads for faster uploads
-        max_io_queue=50                       # Reduced from 100 to 50 to control memory usage
+        multipart_threshold=16 * 1024 * 1024,  # 16MB - use multipart upload for anything larger than this
+        max_concurrency=20,                    # Increased for better parallelism
+        multipart_chunksize=16 * 1024 * 1024,  # 16MB per part - larger parts for better performance
+        use_threads=True,                      # Use threads for faster uploads
+        max_io_queue=100,                      # Increased for better throughput
+        num_download_attempts=10               # Increased retry attempts for better reliability
     )
 
     def __new__(cls) -> 'S3Singleton':
@@ -51,7 +52,10 @@ class S3Singleton:
                 'aws_secret_access_key': os.environ["S3_SECRET_KEY"],
                 'config': Config(
                     signature_version='s3v4',
-                    max_pool_connections=25  # Reduced from 50 to 25 to prevent connection pool issues
+                    max_pool_connections=50,  # Increased for better connection reuse
+                    connect_timeout=10,       # 10 seconds connection timeout
+                    read_timeout=60,          # 60 seconds read timeout
+                    retries={'max_attempts': 10, 'mode': 'adaptive'}  # Increased retries with adaptive backoff
                 )
             }
 

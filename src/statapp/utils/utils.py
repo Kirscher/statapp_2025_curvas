@@ -63,7 +63,7 @@ def create_progress(description: str = "Processing") -> Progress:
         TextColumn("[bold cyan]{task.fields[file_size]}", justify="right"),
         "•",
         TextColumn("[bold green]{task.fields[speed]}", justify="right"),
-        refresh_per_second=10,  # More frequent updates
+        refresh_per_second=2,  # Reduced refresh rate for better performance
         transient=True,  # Use the same line for updates
         console=console  # Use the shared console instance
     )
@@ -92,7 +92,7 @@ def create_dual_progress() -> Progress:
         TextColumn("{task.fields[size]}", justify="right"),
         "•",
         TextColumn("{task.fields[elapsed]}", justify="right"),
-        refresh_per_second=10,  # More frequent updates
+        refresh_per_second=2,  # Reduced refresh rate for better performance
         expand=True,  # Expand to full width
         transient=True,  # Use transient to update in place
         console=console  # Use the shared console instance

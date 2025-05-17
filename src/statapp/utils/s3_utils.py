@@ -259,33 +259,40 @@ def upload_directory(local_dir: str, remote_dir: str,
             s3_key = os.path.join(prefix, rel_path).replace('\\', '/')
             files_to_upload.append((local_file_path, file, s3_key))
 
-    # Process files in parallel
+    # Process files in parallel with batch processing for better performance
     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         future_to_file = {}
+        batch_size = 25  # Process files in larger batches for better throughput
 
-        for local_file_path, file, s3_key in files_to_upload:
-            # Create a callback wrapper that includes the filename if callback was provided
-            file_callback = None
-            if callback:
-                def file_callback_fn(bytes_transferred):
-                    callback(bytes_transferred, file)
-                file_callback = file_callback_fn
+        for i in range(0, len(files_to_upload), batch_size):
+            batch = files_to_upload[i:i+batch_size]
 
-            # Submit upload task to the executor
-            future = executor.submit(
-                upload_file_task,
-                local_file_path,
-                bucket,
-                s3_key,
-                file_callback
-            )
-            future_to_file[future] = local_file_path
+            # Process this batch
+            for local_file_path, file, s3_key in batch:
+                # Create a callback wrapper that includes the filename if callback was provided
+                file_callback = None
+                if callback:
+                    def file_callback_fn(bytes_transferred):
+                        callback(bytes_transferred, file)
+                    file_callback = file_callback_fn
 
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(future_to_file):
-            result = future.result()
-            if result:
-                uploaded_files.append(result)
+                # Submit upload task to the executor
+                future = executor.submit(
+                    upload_file_task,
+                    local_file_path,
+                    bucket,
+                    s3_key,
+                    file_callback
+                )
+                future_to_file[future] = local_file_path
+
+            # Process results for this batch as they complete
+            for future in concurrent.futures.as_completed(list(future_to_file.keys())):
+                result = future.result()
+                if result:
+                    uploaded_files.append(result)
+                # Remove the future from the dictionary to free up resources
+                del future_to_file[future]
 
     return uploaded_files
 
@@ -365,13 +372,13 @@ def download_directory(remote_dir: str, local_dir: str,
         if 'Contents' in page:
             objects.extend(page['Contents'])
 
-    # Reduce the number of concurrent downloads to avoid connection pool issues
-    max_workers = 10  # Reduced from 20 to 10
+    # Optimize concurrent downloads for better performance
+    max_workers = 20  # Increased for better parallelism
 
     # Process files in parallel with a reduced number of workers
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_file = {}
-        batch_size = 10  # Process files in smaller batches
+        batch_size = 25  # Increased batch size for better throughput
 
         for i in range(0, len(objects), batch_size):
             batch = objects[i:i+batch_size]
