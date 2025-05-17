@@ -327,7 +327,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
     # Prepare file list for downloading
     files_to_download = [
         {
-            'remote_path': image_file,
+            'remote_path': f"{bucket}/{image_file}",
             'local_path': str(local_image_path),
             'display_name': f"image for patient UKCHLL{patient_id}"
         }
@@ -351,7 +351,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
         try:
             # Start tracking file download
             progress_tracker.start_file(
-                file_info['remote_path'],
+                file_info,
                 f"Downloading {display_name}",
                 file_size
             )
