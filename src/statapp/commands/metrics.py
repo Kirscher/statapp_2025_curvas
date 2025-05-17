@@ -116,9 +116,8 @@ def get_available_models() -> List[str]:
         match = pattern.match(key)
         if match:
             model_name = match.group(1)
-            # Exclude ensemble folders
-            if not model_name.startswith("ensemble_"):
-                available_models.add(model_name)
+            # Include all model folders, including ensemble folders
+            available_models.add(model_name)
 
     return sorted(list(available_models))
 
