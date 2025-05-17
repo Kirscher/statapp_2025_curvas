@@ -82,7 +82,7 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
         model_name (str): Name of the model folder (e.g., anno1_init112233_foldall)
         local_models_dir (Path): Local directory to download the model to
         verbose (bool): Enable verbose logging
-        progress_tracker: Optional progress tracker instance
+        progress_tracker: Optional progress tracker instance to use instead of creating a new one
 
     Returns:
         Path: Path to the downloaded model checkpoint
@@ -105,59 +105,113 @@ def download_model(model_name: str, local_models_dir: Path, verbose: bool = Fals
     local_checkpoint_path = local_checkpoint_dir / checkpoint_filename
     remote_folder_path = f"{os.environ['S3_ARTIFACTS_DIR']}/{os.environ['S3_MODEL_ARTIFACTS_SUBDIR']}/{model_name}/{checkpoint_subdir}"
     remote_checkpoint_path = f"{remote_folder_path}/{checkpoint_filename}"
+    bucket = os.environ['S3_BUCKET']
 
-    # Download the model checkpoint
-    logger.info(f"Downloading model checkpoint for {model_name}...")
+    # Prepare file list for downloading
+    files_to_download = [
+        {
+            'remote_path': f"{bucket}/{remote_folder_path}/{checkpoint_filename}",
+            'local_path': str(local_checkpoint_path),
+            'display_name': f"checkpoint for {model_name}"
+        }
+    ]
 
-    # Start time for tracking
-    import time
-    start_time = time.time()
+    # Add additional small files to run the model
+    for file in ["dataset.json", "plans.json"]:
+        local_file_path = local_checkpoint_dir / file
+        files_to_download.append({
+            'remote_path': f"{bucket}/{remote_folder_path}/{file}",
+            'local_path': str(local_file_path),
+            'display_name': f"{file} for {model_name}"
+        })
 
-    # Get the file size
-    bucket, key = s3_utils.parse_remote_path(remote_checkpoint_path)
-    file_size = s3_utils.get_file_size(bucket, key)
+    # Function to get file size
+    def get_file_size(file_info):
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key) or 1024  # Default to 1KB if size is 0
 
-    # Create a callback function for progress updates
-    def progress_callback(bytes_transferred):
-        if progress_tracker:
-            progress_tracker.update_file_progress(
-                bytes_transferred, 
-                file_size, 
-                f"Downloading checkpoint for {model_name}", 
-                start_time
+    # Function to process each file
+    def process_file(file_info, progress_tracker):
+        display_name = file_info['display_name']
+
+        # Get the file size
+        file_size = get_file_size(file_info)
+
+        # Record start time
+        start_time = time.time()
+
+        try:
+            # Start tracking file download
+            progress_tracker.start_file(
+                file_info['remote_path'],
+                f"Downloading {display_name}",
+                file_size
             )
 
-    # Download only the checkpoint file with progress tracking
-    success = s3_utils.download_file(
-        remote_path=remote_checkpoint_path,
-        local_path=str(local_checkpoint_path),
-        callback=progress_callback
-    )
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(file_info['local_path']), exist_ok=True)
 
-    # Check if the checkpoint file exists
-    if not success or not local_checkpoint_path.exists():
-        logger.error(f"Checkpoint file not found for model {model_name}")
-        return None
+            # Download file
+            success = s3_utils.download_file(
+                remote_path=file_info['remote_path'],
+                local_path=file_info['local_path'],
+                callback=progress_tracker.get_progress_callback(
+                    f"Downloading {display_name}",
+                    file_size,
+                    start_time
+                )
+            )
 
-    # Download additional small files to run the model
-    for file in ["dataset.json", "plans.json"]:
-        local_file = f"{local_checkpoint_dir}/{file}"
+            # Complete file download
+            progress_tracker.complete_file(
+                f"Downloaded {display_name}",
+                file_size,
+                start_time,
+                success=success
+            )
 
-        success = s3_utils.download_file(
-            remote_path=f"{remote_folder_path}/{file}",
-            local_path=local_file,
-            callback=progress_callback
-        )
+            if not success:
+                logger.error(f"Failed to download {display_name}")
+                return False
 
-        if not success or not Path(local_file).exists():
-            logger.error(f"Additional file {file} could not be downloaded.")
+            return True
+        except Exception as e:
+            # Mark file as failed
+            progress_tracker.complete_file(
+                f"Error downloading {display_name}",
+                file_size,
+                start_time,
+                success=False
+            )
+            logger.error(f"Error processing {display_name}: {str(e)}")
+            return False
+
+    # Track progress and process files
+    try:
+        # If a progress tracker is provided, use it directly
+        if progress_tracker:
+            success = True
+            for file_info in files_to_download:
+                if not process_file(file_info, progress_tracker):
+                    success = False
+        else:
+            # Otherwise create a new one with track_progress
+            success = track_progress(files_to_download, get_file_size, process_file)
+
+        if not success:
+            logger.error(f"Failed to download model files for {model_name}")
             return None
 
+        # Check if the checkpoint file exists
+        if not local_checkpoint_path.exists():
+            logger.error(f"Checkpoint file not found for model {model_name}")
+            return None
 
-
-
-    logger.info(f"Model checkpoint downloaded successfully for {model_name}")
-    return model_dir
+        logger.info(f"Model checkpoint downloaded successfully for {model_name}")
+        return model_dir
+    except Exception as e:
+        logger.error(f"Error downloading model files: {str(e)}")
+        return None
 
 def get_selected_patients(patients: Union[List[str], Literal["all", "train", "validation", "test"]], verbose: bool = False) -> List[str]:
     """
@@ -235,7 +289,7 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
         patient_id (str): Patient ID (e.g., 001)
         local_dir (Path): Local directory to download the image to
         verbose (bool): Enable verbose logging
-        progress_tracker: Optional progress tracker instance
+        progress_tracker: Optional progress tracker instance to use instead of creating a new one
 
     Returns:
         Path: Path to the downloaded image
@@ -268,35 +322,104 @@ def download_patient_image(patient_id: str, local_dir: Path, verbose: bool = Fal
 
     # Download the image file
     local_image_path = patient_dir / f"CURVAS_{patient_id}_0000.nii.gz"
-    logger.info(f"Downloading image for patient UKCHLL{patient_id}...")
+    bucket = os.environ['S3_BUCKET']
 
-    # Start time for tracking
-    import time
-    start_time = time.time()
+    # Prepare file list for downloading
+    files_to_download = [
+        {
+            'remote_path': image_file,
+            'local_path': str(local_image_path),
+            'display_name': f"image for patient UKCHLL{patient_id}"
+        }
+    ]
 
-    # Get the file size
-    bucket, key = s3_utils.parse_remote_path(image_file)
-    file_size = s3_utils.get_file_size(bucket, key)
+    # Function to get file size
+    def get_file_size(file_info):
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key) or 1024  # Default to 1KB if size is 0
 
-    # Create a callback function for progress updates
-    def progress_callback(bytes_transferred):
-        if progress_tracker:
-            progress_tracker.update_file_progress(
-                bytes_transferred, 
-                file_size, 
-                f"Downloading image for patient UKCHLL{patient_id}", 
-                start_time
+    # Function to process each file
+    def process_file(file_info, progress_tracker):
+        display_name = file_info['display_name']
+
+        # Get the file size
+        file_size = get_file_size(file_info)
+
+        # Record start time
+        start_time = time.time()
+
+        try:
+            # Start tracking file download
+            progress_tracker.start_file(
+                file_info['remote_path'],
+                f"Downloading {display_name}",
+                file_size
             )
 
-    # Download the file with progress tracking
-    s3_utils.download_file(
-        remote_path=image_file,
-        local_path=str(local_image_path),
-        callback=progress_callback
-    )
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(file_info['local_path']), exist_ok=True)
 
-    logger.info(f"Image downloaded successfully for patient UKCHLL{patient_id}")
-    return local_image_path
+            # Download file
+            success = s3_utils.download_file(
+                remote_path=file_info['remote_path'],
+                local_path=file_info['local_path'],
+                callback=progress_tracker.get_progress_callback(
+                    f"Downloading {display_name}",
+                    file_size,
+                    start_time
+                )
+            )
+
+            # Complete file download
+            progress_tracker.complete_file(
+                f"Downloaded {display_name}",
+                file_size,
+                start_time,
+                success=success
+            )
+
+            if not success:
+                logger.error(f"Failed to download {display_name}")
+                return False
+
+            return True
+        except Exception as e:
+            # Mark file as failed
+            progress_tracker.complete_file(
+                f"Error downloading {display_name}",
+                file_size,
+                start_time,
+                success=False
+            )
+            logger.error(f"Error processing {display_name}: {str(e)}")
+            return False
+
+    # Track progress and process files
+    try:
+        # If a progress tracker is provided, use it directly
+        if progress_tracker:
+            success = True
+            for file_info in files_to_download:
+                if not process_file(file_info, progress_tracker):
+                    success = False
+        else:
+            # Otherwise create a new one with track_progress
+            success = track_progress(files_to_download, get_file_size, process_file)
+
+        if not success:
+            logger.error(f"Failed to download image for patient UKCHLL{patient_id}")
+            return None
+
+        # Check if the image file exists
+        if not local_image_path.exists():
+            logger.error(f"Image file not found for patient UKCHLL{patient_id}")
+            return None
+
+        logger.info(f"Image downloaded successfully for patient UKCHLL{patient_id}")
+        return local_image_path
+    except Exception as e:
+        logger.error(f"Error downloading image: {str(e)}")
+        return None
 
 @app.command()
 def predict(
@@ -380,19 +503,44 @@ def predict(
         logger.info("Downloading model checkpoints...")
         model_paths = {}
 
-        # Define a function to get the "size" of a model (we'll just use 1 for each model)
+        # Define a function to get the actual size of a model from S3
         def get_model_size(model_name):
-            return 1
+            # Define the expected checkpoint path
+            checkpoint_subdir = "nnUNetTrainer_Statapp__nnUNetPlans__3d_fullres"
+            checkpoint_filename = "fold_all/checkpoint_final.pth"
+
+            # Define the remote paths for the model files
+            remote_folder_path = f"{os.environ['S3_ARTIFACTS_DIR']}/{os.environ['S3_MODEL_ARTIFACTS_SUBDIR']}/{model_name}/{checkpoint_subdir}"
+            bucket = os.environ['S3_BUCKET']
+
+            # List of files to check
+            files_to_check = [
+                f"{remote_folder_path}/{checkpoint_filename}",
+                f"{remote_folder_path}/dataset.json",
+                f"{remote_folder_path}/plans.json"
+            ]
+
+            # Calculate total size
+            total_size = 0
+            for file_path in files_to_check:
+                remote_path = f"{bucket}/{file_path}"
+                bucket_name, key = s3_utils.parse_remote_path(remote_path)
+                size = s3_utils.get_file_size(bucket_name, key) or 0
+                total_size += size
+
+            # Return at least 1KB if no files were found
+            return total_size or 1024
 
         # Define a function to download a model
         def process_model(model_name, progress_tracker):
-            progress_tracker.start_file(model_name, f"Downloading model {model_name}", 1)
+            model_size = get_model_size(model_name)
+            progress_tracker.start_file(model_name, f"Downloading model {model_name}", model_size)
             model_path = download_model(model_name, models_dir, verbose, progress_tracker)
             if model_path:
                 model_paths[model_name] = model_path
-                progress_tracker.complete_file(f"Downloaded model {model_name}", 1, time.time(), success=True)
+                progress_tracker.complete_file(f"Downloaded model {model_name}", model_size, time.time(), success=True)
             else:
-                progress_tracker.complete_file(f"Failed to download model {model_name}", 1, time.time(), success=False)
+                progress_tracker.complete_file(f"Failed to download model {model_name}", model_size, time.time(), success=False)
 
         # Track progress of downloading models
         track_progress(selected_models, get_model_size, process_model)
@@ -403,13 +551,39 @@ def predict(
 
         # Process each patient
 
-        # Define a function to get the "size" of a patient (we'll just use 1 for each patient)
+        # Define a function to get the actual size of a patient image from S3
         def get_patient_size(patient_id):
-            return 1
+            # Define the remote path
+            remote_dir = f"{os.environ['S3_DATA_DIR']}/UKCHLL{patient_id}"
+
+            # List contents of the data directory
+            contents = s3_utils.list_data_directory()
+
+            # Find the image file
+            image_pattern = re.compile(r'^' + re.escape(remote_dir) + r'/image\.nii\.gz$')
+            image_file = None
+
+            for item in contents:
+                key = item['Key']
+                if image_pattern.match(key):
+                    image_file = key
+                    break
+
+            if not image_file:
+                # Return a default size if the image file is not found
+                return 50 * 1024 * 1024
+
+            # Get the file size
+            bucket = os.environ['S3_BUCKET']
+            size = s3_utils.get_file_size(bucket, image_file) or 0
+
+            # Return at least 1KB if the file size is 0
+            return size or 1024
 
         # Define a function to process a patient
         def process_patient(patient_id, progress_tracker):
-            progress_tracker.start_file(patient_id, f"Processing patient UKCHLL{patient_id}", 1)
+            patient_size = get_patient_size(patient_id)
+            progress_tracker.start_file(patient_id, f"Processing patient UKCHLL{patient_id}", patient_size)
             logger.info(f"Processing patient UKCHLL{patient_id}...")
 
             try:
@@ -417,7 +591,7 @@ def predict(
                 patient_image_path = download_patient_image(patient_id, input_dir, verbose, progress_tracker)
                 if not patient_image_path:
                     logger.error(f"Failed to download image for patient UKCHLL{patient_id}")
-                    progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id}", 1, time.time(), success=False)
+                    progress_tracker.complete_file(f"Failed to process patient UKCHLL{patient_id}", patient_size, time.time(), success=False)
                     return
 
                 # Create patient output directory
@@ -486,11 +660,11 @@ def predict(
                 upload_thread.start()
 
                 # Mark patient as completed
-                progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id}", 1, time.time(), success=True)
+                progress_tracker.complete_file(f"Processed patient UKCHLL{patient_id}", patient_size, time.time(), success=True)
 
             except Exception as e:
                 logger.error(f"Error processing patient UKCHLL{patient_id}: {str(e)}")
-                progress_tracker.complete_file(f"Error processing patient UKCHLL{patient_id}", 1, time.time(), success=False)
+                progress_tracker.complete_file(f"Error processing patient UKCHLL{patient_id}", patient_size, time.time(), success=False)
 
         # Track progress of processing patients
         track_progress(selected_patients, get_patient_size, process_patient)
