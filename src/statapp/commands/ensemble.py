@@ -146,66 +146,119 @@ def download_curvas_files(patient_id: str, model_name: str, output_dir: Path, ve
 
     # Define the remote path
     remote_dir = f"{os.environ['S3_OUTPUT_DIR']}/UKCHLL{patient_id}/{model_name}"
+    bucket = os.environ['S3_BUCKET']
 
     # List contents of the output directory
     contents = s3_utils.list_output_directory()
 
     # Find all files for this patient and model
-    patient_files = []
     pattern = re.compile(r'^' + re.escape(remote_dir) + r'/')
+
+    # Prepare file list for downloading
+    files_to_download = []
 
     for item in contents:
         key = item['Key']
         if pattern.match(key):
-            patient_files.append(key)
+            # Get the file name from the path
+            file_name = os.path.basename(key)
 
-    if not patient_files:
+            # Create the local path
+            local_file_path = model_dir / file_name
+
+            # Add to the list of files to download
+            files_to_download.append({
+                'remote_path': f"{bucket}/{key}",
+                'local_path': str(local_file_path),
+                'display_name': f"{file_name} for patient UKCHLL{patient_id} and model {model_name}"
+            })
+
+    if not files_to_download:
         logger.error(f"No files found for patient UKCHLL{patient_id} and model {model_name}")
         return False
 
-    # Download the files
-    success = True
+    # Function to get file size
+    def get_file_size(file_info):
+        bucket, key = s3_utils.parse_remote_path(file_info['remote_path'])
+        return s3_utils.get_file_size(bucket, key) or 1024  # Default to 1KB if size is 0
 
-    # Start time for tracking
-    start_time = time.time()
-
-    # Download each file
-    for file_path in patient_files:
-        # Get the file name from the path
-        file_name = os.path.basename(file_path)
+    # Function to process each file
+    def process_file(file_info, progress_tracker):
+        display_name = file_info['display_name']
 
         # Get the file size
-        bucket, key = s3_utils.parse_remote_path(file_path)
-        file_size = s3_utils.get_file_size(bucket, key)
+        file_size = get_file_size(file_info)
 
-        # Create the local path
-        local_file_path = model_dir / file_name
+        # Record start time
+        start_time = time.time()
 
-        logger.info(f"Downloading {file_name} for patient UKCHLL{patient_id} and model {model_name}...")
+        try:
+            # Start tracking file download
+            progress_tracker.start_file(
+                file_info,
+                f"Downloading {display_name}",
+                file_size
+            )
 
-        # Create a callback function for progress updates
-        def file_progress_callback(bytes_transferred):
-            if progress_tracker:
-                progress_tracker.update_file_progress(
-                    bytes_transferred, 
-                    file_size, 
-                    f"Downloading {file_name} for patient UKCHLL{patient_id} and model {model_name}", 
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(file_info['local_path']), exist_ok=True)
+
+            # Download file
+            success = s3_utils.download_file(
+                remote_path=file_info['remote_path'],
+                local_path=file_info['local_path'],
+                callback=progress_tracker.get_progress_callback(
+                    f"Downloading {display_name}",
+                    file_size,
                     start_time
                 )
+            )
 
-        # Download the file with progress tracking
-        file_success = s3_utils.download_file(
-            remote_path=file_path,
-            local_path=str(local_file_path),
-            callback=file_progress_callback
-        )
+            # Complete file download
+            progress_tracker.complete_file(
+                f"Downloaded {display_name}",
+                file_size,
+                start_time,
+                success=success
+            )
 
-        if not file_success:
-            logger.error(f"Failed to download {file_name} for patient UKCHLL{patient_id} and model {model_name}")
-            success = False
+            if not success:
+                logger.error(f"Failed to download {display_name}")
+                return False
 
-    logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
-    return success
+            return True
+        except Exception as e:
+            # Mark file as failed
+            progress_tracker.complete_file(
+                f"Error downloading {display_name}",
+                file_size,
+                start_time,
+                success=False
+            )
+            logger.error(f"Error processing {display_name}: {str(e)}")
+            return False
+
+    # Track progress and process files
+    try:
+        # If a progress tracker is provided, use it directly
+        if progress_tracker:
+            success = True
+            for file_info in files_to_download:
+                if not process_file(file_info, progress_tracker):
+                    success = False
+        else:
+            # Otherwise create a new one with track_progress
+            success = track_progress(files_to_download, get_file_size, process_file)
+
+        if not success:
+            logger.error(f"Failed to download files for patient UKCHLL{patient_id} and model {model_name}")
+            return False
+
+        logger.info(f"All files downloaded successfully for patient UKCHLL{patient_id} and model {model_name}")
+        return True
+    except Exception as e:
+        logger.error(f"Error downloading files: {str(e)}")
+        return False
 
 @app.command()
 def dl_ensemble(
@@ -339,7 +392,15 @@ def dl_ensemble(
         patient_id, model_name = pair
         # Get the actual size of the pair
         pair_size = get_pair_size(pair)
-        progress_tracker.start_file(pair, f"Processing patient UKCHLL{patient_id} with model {model_name}", pair_size)
+
+        # Create file_info object for progress tracking
+        file_info = {
+            'patient_id': patient_id,
+            'model_name': model_name,
+            'display_name': f"patient UKCHLL{patient_id} with model {model_name}"
+        }
+
+        progress_tracker.start_file(file_info, f"Processing patient UKCHLL{patient_id} with model {model_name}", pair_size)
         logger.info(f"Processing patient UKCHLL{patient_id} with model {model_name}...")
 
         try:
@@ -598,7 +659,15 @@ def ensemble(
                 p_id, model_name = pair
                 # Get the actual size of the pair
                 pair_size = get_pair_size(pair)
-                progress_tracker.start_file(pair, f"Processing patient UKCHLL{p_id} with model {model_name}", pair_size)
+
+                # Create file_info object for progress tracking
+                file_info = {
+                    'patient_id': p_id,
+                    'model_name': model_name,
+                    'display_name': f"patient UKCHLL{p_id} with model {model_name}"
+                }
+
+                progress_tracker.start_file(file_info, f"Processing patient UKCHLL{p_id} with model {model_name}", pair_size)
                 logger.info(f"Processing patient UKCHLL{p_id} with model {model_name}...")
 
                 try:
