@@ -1,0 +1,416 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tabulary}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+\geometry{a4paper, margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    framesep=5pt,
+    framexleftmargin=15pt,
+    tabsize=4,
+    captionpos=b
+}
+
+\title{StatApp Command Line Interface Documentation}
+\author{StatApp Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+This document provides comprehensive documentation for the StatApp command line interface. The StatApp CLI is a tool for medical segmentation that handles inter-rater uncertainty and variability. It is built on top of nnU-Net, a framework for out-of-the-box image segmentation.
+
+The CLI provides commands for:
+\begin{itemize}
+    \item Preparing datasets
+    \item Training models
+    \item Running predictions
+    \item Ensembling multiple models
+    \item Computing metrics
+    \item Managing artifacts in S3 storage
+\end{itemize}
+
+\section{Command Overview}
+
+\subsection{about}
+\subsubsection{Description}
+Displays information about the project, including its purpose and contributors.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp about
+\end{lstlisting}
+
+\subsubsection{Parameters}
+None
+
+\subsection{upload}
+\subsubsection{Description}
+The upload command provides functionality to upload local directories to S3 storage. It includes three subcommands:
+
+\paragraph{upload\_data}
+Uploads a local directory to the S3 data folder defined in the .env file.
+
+\paragraph{upload\_model\_artifacts}
+Uploads a local directory to the S3 artifacts/model folder defined in the .env file.
+
+\paragraph{upload\_preprocessing\_artifacts}
+Uploads a local directory to the S3 artifacts/preprocessing folder defined in the .env file.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp upload upload-data <directory> [--verbose]
+statapp upload upload-model-artifacts <directory> <modelfolder> [--verbose]
+statapp upload upload-preprocessing-artifacts <directory> <preprocessingfolder> [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Subcommand} & \textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+upload-data & directory & string & Local directory path to upload \\
+upload-data & --verbose, -v & flag & Enable verbose output \\
+\midrule
+upload-model-artifacts & directory & string & Local directory path to upload \\
+upload-model-artifacts & modelfolder & string & Subfolder name of the model \\
+upload-model-artifacts & --verbose, -v & flag & Enable verbose output \\
+\midrule
+upload-preprocessing-artifacts & directory & string & Local directory path to upload \\
+upload-preprocessing-artifacts & preprocessingfolder & string & Subfolder name of the preprocessing \\
+upload-preprocessing-artifacts & --verbose, -v & flag & Enable verbose output \\
+\bottomrule
+\end{tabulary}
+
+\subsection{empty-artifacts}
+\subsubsection{Description}
+Removes all files and folders from the S3 artifacts folder defined in the .env file. This operation cannot be undone, so use with caution.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp empty-artifacts [--verbose] [--confirm]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+--verbose, -v & flag & Enable verbose output \\
+--confirm, -c & flag & Confirm deletion without prompting \\
+\bottomrule
+\end{tabulary}
+
+\subsection{empty-data}
+\subsubsection{Description}
+Removes all files and folders from the S3 data folder defined in the .env file. This operation cannot be undone, so use with caution.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp empty-data [--verbose] [--confirm]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+--verbose, -v & flag & Enable verbose output \\
+--confirm, -c & flag & Confirm deletion without prompting \\
+\bottomrule
+\end{tabulary}
+
+\subsection{prepare}
+\subsubsection{Description}
+The prepare command provides functionality for preparing datasets for analysis. It includes three subcommands:
+
+\paragraph{download-dataset}
+Downloads a dataset for analysis without running preprocessing.
+
+\paragraph{download-preprocessing}
+Downloads preprocessing artifacts for a dataset.
+
+\paragraph{prepare}
+Prepares a dataset for analysis by downloading data and running preprocessing.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp prepare download-dataset <annotator> <patients> [--verbose]
+statapp prepare download-preprocessing <annotator> <patients> [--verbose]
+statapp prepare prepare <annotator> <patients> [--skip] [--num-processes-fingerprint <num>] [--num-processes <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Subcommand} & \textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+download-dataset & annotator & string & Annotator (1/2/3) \\
+download-dataset & patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+download-dataset & --verbose, -v & flag & Enable verbose logging \\
+\midrule
+download-preprocessing & annotator & string & Annotator (1/2/3) \\
+download-preprocessing & patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+download-preprocessing & --verbose, -v & flag & Enable verbose logging \\
+\midrule
+prepare & annotator & string & Annotator (1/2/3) \\
+prepare & patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+prepare & --skip & flag & Skip download and only run preprocessing \\
+prepare & --num-processes-fingerprint, -npfp & integer & Number of processes to use for fingerprint extraction (default: 2) \\
+prepare & --num-processes, -np & integer & Number of processes to use for preprocessing (default: 2) \\
+prepare & --verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\subsection{train}
+\subsubsection{Description}
+Runs nnUNet training. The dataset must be prepared with the prepare command beforehand.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp train [<seed>] [--fold <fold>] [--patients <patients>] [--annotator <annotator>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+seed & integer & Set random seed for reproducibility \\
+--fold, -f & string & Fold to use for training. Can be 'all' to use all folds, or a specific fold number (0-4) \\
+--patients, -p & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+--annotator, -a & string & Annotator (1/2/3) \\
+--verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\subsection{run}
+\subsubsection{Description}
+Runs the complete pipeline: prepare data, train model, and upload artifacts. This command combines the functionality of prepare, train, and upload\_artifacts commands.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp run <annotator> <seed> <patients> [--fold <fold>] [--skip] [--num-processes-fingerprint <num>] [--num-processes <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+annotator & string & Annotator (1/2/3) \\
+seed & integer & Set random seed for reproducibility \\
+patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+--fold, -f & string & Fold to use for training. Can be 'all' to use all folds, or a specific fold number (0-4) \\
+--skip & flag & Skip download and only run preprocessing \\
+--num-processes-fingerprint, -npfp & integer & Number of processes to use for fingerprint extraction (default: 2) \\
+--num-processes, -np & integer & Number of processes to use for preprocessing (default: 2) \\
+--verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\subsection{predict}
+\subsubsection{Description}
+Predicts segmentation for patients using specified models. Downloads patient images and model checkpoints, runs prediction for each model, and uploads results to S3.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp predict <patients> [--models <models>] [--jobs <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+--models, -m & list/string & List of models to use for prediction (e.g., anno1\_init112233\_foldall) or 'all' \\
+--jobs, -j & integer & Number of processes to run (default: 10) \\
+--verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\subsection{ensemble}
+\subsubsection{Description}
+The ensemble command provides functionality for ensembling predictions from multiple models. It includes three subcommands:
+
+\paragraph{dl-ensemble}
+Downloads predictions from multiple models.
+
+\paragraph{run-ensemble}
+Runs ensemble\_folders from nnUNet on the downloaded model predictions.
+
+\paragraph{ensemble}
+Combines the functionality of both dl-ensemble and run-ensemble commands.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp ensemble dl-ensemble <patients> [--models <models>] [--jobs <num>] [--verbose]
+statapp ensemble run-ensemble <patients> [--verbose] [--jobs <num>]
+statapp ensemble ensemble <patients> [--models <models>] [--jobs <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Subcommand} & \textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+dl-ensemble & patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+dl-ensemble & --models, -m & list/string & List of models to use for ensembling (e.g., anno1\_init112233\_foldall) or 'all' \\
+dl-ensemble & --jobs, -j & integer & Number of processes to run (default: 10) \\
+dl-ensemble & --verbose, -v & flag & Enable verbose logging \\
+\midrule
+run-ensemble & patients & list/string & List of patient numbers (e.g., 001 034) \\
+run-ensemble & --jobs, -j & integer & Number of processes to run (default: 10) \\
+run-ensemble & --verbose, -v & flag & Enable verbose logging \\
+\midrule
+ensemble & patients & list/string & List of patient numbers (e.g., 001 034) or 'all', 'train', 'validation', 'test' \\
+ensemble & --models, -m & list/string & List of models to use for ensembling (e.g., anno1\_init112233\_foldall) or 'all' \\
+ensemble & --jobs, -j & integer & Number of processes to run (default: 10) \\
+ensemble & --verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\subsection{metrics}
+\subsubsection{Description}
+The metrics command provides functionality for computing and downloading metrics for model predictions. It includes two subcommands:
+
+\paragraph{compute-metrics}
+Computes metrics for model predictions on patient data.
+
+\paragraph{dl-metrics}
+Downloads all metrics files from S3, merges them, and saves to the working directory.
+
+\subsubsection{Usage}
+\begin{lstlisting}
+statapp metrics compute-metrics <patients> [--models <models>] [--verbose]
+statapp metrics dl-metrics [--output <output_name>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Parameters}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Subcommand} & \textbf{Parameter} & \textbf{Type} & \textbf{Description} \\
+\midrule
+compute-metrics & patients & list/string & List of patient numbers (e.g., 075 034) or 'all', 'train', 'validation', 'test' \\
+compute-metrics & --models, -m & list/string & List of models to use for metrics computation (e.g., anno1\_init112233\_foldall) or 'all' \\
+compute-metrics & --verbose, -v & flag & Enable verbose logging \\
+\midrule
+dl-metrics & --output, -o & string & Name of the output CSV file (default: metrics.csv) \\
+dl-metrics & --verbose, -v & flag & Enable verbose logging \\
+\bottomrule
+\end{tabulary}
+
+\section{Examples}
+
+\subsection{Preparing a Dataset}
+\begin{lstlisting}
+# Download a dataset for annotator 1 with all patients
+statapp prepare download-dataset 1 all --verbose
+
+# Download preprocessing artifacts for annotator 1 with training patients
+statapp prepare download-preprocessing 1 train --verbose
+
+# Prepare a dataset for annotator 1 with validation patients
+statapp prepare prepare 1 validation --num-processes 4 --verbose
+\end{lstlisting}
+
+\subsection{Training a Model}
+\begin{lstlisting}
+# Train a model with annotator 1, seed 42, and all folds
+statapp train 42 --annotator 1 --fold all --patients train --verbose
+
+# Run the complete pipeline for annotator 1, seed 42, and validation patients
+statapp run 1 42 validation --fold all --num-processes 4 --verbose
+\end{lstlisting}
+
+\subsection{Running Predictions}
+\begin{lstlisting}
+# Predict segmentation for test patients using all models
+statapp predict test --models all --jobs 8 --verbose
+
+# Predict segmentation for specific patients using a specific model
+statapp predict 001 034 --models anno1_init42_foldall --jobs 4 --verbose
+\end{lstlisting}
+
+\subsection{Ensembling Models}
+\begin{lstlisting}
+# Download predictions for test patients from all models
+statapp ensemble dl-ensemble test --models all --jobs 8 --verbose
+
+# Run ensemble for specific patients
+statapp ensemble run-ensemble 001 034 --jobs 4 --verbose
+
+# Run the complete ensemble pipeline for test patients
+statapp ensemble ensemble test --models all --jobs 8 --verbose
+\end{lstlisting}
+
+\subsection{Computing Metrics}
+\begin{lstlisting}
+# Compute metrics for test patients using all models
+statapp metrics compute-metrics test --models all --verbose
+
+# Download and merge all metrics files
+statapp metrics dl-metrics --output combined_metrics.csv --verbose
+\end{lstlisting}
+
+\subsection{Managing S3 Storage}
+\begin{lstlisting}
+# Upload data to S3
+statapp upload upload-data ./my_data --verbose
+
+# Upload model artifacts to S3
+statapp upload upload-model-artifacts ./my_model anno1_init42_foldall --verbose
+
+# Empty the artifacts directory (with confirmation)
+statapp empty-artifacts --verbose
+
+# Empty the data directory (without confirmation)
+statapp empty-data --confirm --verbose
+\end{lstlisting}
+
+\section{Environment Variables}
+The StatApp CLI uses several environment variables for configuration. These should be defined in a .env file in the project root directory.
+
+\begin{tabulary}{\linewidth}{LL}
+\toprule
+\textbf{Variable} & \textbf{Description} \\
+\midrule
+S3\_BUCKET & The S3 bucket name \\
+S3\_DATA\_DIR & The directory in S3 for storing data \\
+S3\_ARTIFACTS\_DIR & The directory in S3 for storing artifacts \\
+S3\_OUTPUT\_DIR & The directory in S3 for storing output \\
+S3\_METRICS\_DIR & The directory in S3 for storing metrics \\
+S3\_MODEL\_ARTIFACTS\_SUBDIR & The subdirectory for model artifacts (default: models) \\
+S3\_PROPROCESSING\_ARTIFACTS\_SUBDIR & The subdirectory for preprocessing artifacts (default: preprocessing) \\
+SEED & Random seed for reproducibility \\
+\bottomrule
+\end{tabulary}
+
+\end{document}

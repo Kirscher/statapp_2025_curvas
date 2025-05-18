@@ -1,5 +1,0 @@
-#@package _global_
-FAILURE_DETECTION:
-  datasets: ["id", "ood"]
-  function:
-    _target_: evaluation.metrics.aurc.main
