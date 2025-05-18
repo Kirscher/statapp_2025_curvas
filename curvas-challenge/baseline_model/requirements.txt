@@ -1,4 +1,0 @@
-SimpleITK
-numpy
-nnunetv2==2.4.2
-torch
