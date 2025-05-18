@@ -1,0 +1,417 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tabulary}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+\geometry{a4paper, margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    framesep=5pt,
+    framexleftmargin=15pt,
+    tabsize=4,
+    captionpos=b
+}
+
+\title{Documentation de l'Interface en Ligne de Commande StatApp}
+\author{Équipe StatApp}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+Ce document fournit une documentation complète pour l'interface en ligne de commande StatApp. La CLI StatApp est un outil de segmentation médicale qui gère l'incertitude et la variabilité entre les annotateurs. Elle est construite sur nnU-Net, un framework pour la segmentation d'images prêt à l'emploi.
+
+La CLI fournit des commandes pour :
+\begin{itemize}
+    \item Préparer des ensembles de données
+    \item Entraîner des modèles
+    \item Exécuter des prédictions
+    \item Combiner plusieurs modèles
+    \item Calculer des métriques
+    \item Gérer les artefacts dans le stockage S3
+\end{itemize}
+
+\section{Aperçu des Commandes}
+
+\subsection{about}
+\subsubsection{Description}
+Affiche des informations sur le projet, y compris son objectif et ses contributeurs.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp about
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+Aucun
+
+\subsection{upload}
+\subsubsection{Description}
+La commande upload fournit des fonctionnalités pour téléverser des répertoires locaux vers le stockage S3. Elle comprend trois sous-commandes :
+
+\paragraph{upload\_data}
+Téléverse un répertoire local vers le dossier de données S3 défini dans le fichier .env.
+
+\paragraph{upload\_model\_artifacts}
+Téléverse un répertoire local vers le dossier S3 artifacts/model défini dans le fichier .env.
+
+\paragraph{upload\_preprocessing\_artifacts}
+Téléverse un répertoire local vers le dossier S3 artifacts/preprocessing défini dans le fichier .env.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp upload upload-data <directory> [--verbose]
+statapp upload upload-model-artifacts <directory> <modelfolder> [--verbose]
+statapp upload upload-preprocessing-artifacts <directory> <preprocessingfolder> [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Sous-commande} & \textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+upload-data & directory & chaîne & Chemin du répertoire local à téléverser \\
+upload-data & --verbose, -v & drapeau & Activer la sortie détaillée \\
+\midrule
+upload-model-artifacts & directory & chaîne & Chemin du répertoire local à téléverser \\
+upload-model-artifacts & modelfolder & chaîne & Nom du sous-dossier du modèle \\
+upload-model-artifacts & --verbose, -v & drapeau & Activer la sortie détaillée \\
+\midrule
+upload-preprocessing-artifacts & directory & chaîne & Chemin du répertoire local à téléverser \\
+upload-preprocessing-artifacts & preprocessingfolder & chaîne & Nom du sous-dossier de prétraitement \\
+upload-preprocessing-artifacts & --verbose, -v & drapeau & Activer la sortie détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{empty-artifacts}
+\subsubsection{Description}
+Supprime tous les fichiers et dossiers du dossier d'artefacts S3 défini dans le fichier .env. Cette opération ne peut pas être annulée, donc à utiliser avec précaution.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp empty-artifacts [--verbose] [--confirm]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+--verbose, -v & drapeau & Activer la sortie détaillée \\
+--confirm, -c & drapeau & Confirmer la suppression sans demander \\
+\bottomrule
+\end{tabulary}
+
+\subsection{empty-data}
+\subsubsection{Description}
+Supprime tous les fichiers et dossiers du dossier de données S3 défini dans le fichier .env. Cette opération ne peut pas être annulée, donc à utiliser avec précaution.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp empty-data [--verbose] [--confirm]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+--verbose, -v & drapeau & Activer la sortie détaillée \\
+--confirm, -c & drapeau & Confirmer la suppression sans demander \\
+\bottomrule
+\end{tabulary}
+
+\subsection{prepare}
+\subsubsection{Description}
+La commande prepare fournit des fonctionnalités pour préparer des ensembles de données pour l'analyse. Elle comprend trois sous-commandes :
+
+\paragraph{download-dataset}
+Télécharge un ensemble de données pour analyse sans exécuter de prétraitement.
+
+\paragraph{download-preprocessing}
+Télécharge des artefacts de prétraitement pour un ensemble de données.
+
+\paragraph{prepare}
+Prépare un ensemble de données pour l'analyse en téléchargeant les données et en exécutant le prétraitement.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp prepare download-dataset <annotator> <patients> [--verbose]
+statapp prepare download-preprocessing <annotator> <patients> [--verbose]
+statapp prepare prepare <annotator> <patients> [--skip] [--num-processes-fingerprint <num>] [--num-processes <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Sous-commande} & \textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+download-dataset & annotator & chaîne & Annotateur (1/2/3) \\
+download-dataset & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+download-dataset & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\midrule
+download-preprocessing & annotator & chaîne & Annotateur (1/2/3) \\
+download-preprocessing & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+download-preprocessing & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\midrule
+prepare & annotator & chaîne & Annotateur (1/2/3) \\
+prepare & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+prepare & --skip & drapeau & Ignorer le téléchargement et exécuter uniquement le prétraitement \\
+prepare & --num-processes-fingerprint, -npfp & entier & Nombre de processus à utiliser pour l'extraction d'empreintes (par défaut : 2) \\
+prepare & --num-processes, -np & entier & Nombre de processus à utiliser pour le prétraitement (par défaut : 2) \\
+prepare & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{train}
+\subsubsection{Description}
+Exécute l'entraînement nnUNet. L'ensemble de données doit être préparé avec la commande prepare au préalable.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp train [<seed>] [--fold <fold>] [--patients <patients>] [--annotator <annotator>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+seed & entier & Définir la graine aléatoire pour la reproductibilité \\
+--fold, -f & chaîne & Pli à utiliser pour l'entraînement. Peut être 'all' pour utiliser tous les plis, ou un numéro de pli spécifique (0-4) \\
+--patients, -p & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+--annotator, -a & chaîne & Annotateur (1/2/3) \\
+--verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{run}
+\subsubsection{Description}
+Exécute le pipeline complet : préparer les données, entraîner le modèle et téléverser les artefacts. Cette commande combine les fonctionnalités des commandes prepare, train et upload\_artifacts.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp run <annotator> <seed> <patients> [--fold <fold>] [--skip] [--num-processes-fingerprint <num>] [--num-processes <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+annotator & chaîne & Annotateur (1/2/3) \\
+seed & entier & Définir la graine aléatoire pour la reproductibilité \\
+patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+--fold, -f & chaîne & Pli à utiliser pour l'entraînement. Peut être 'all' pour utiliser tous les plis, ou un numéro de pli spécifique (0-4) \\
+--skip & drapeau & Ignorer le téléchargement et exécuter uniquement le prétraitement \\
+--num-processes-fingerprint, -npfp & entier & Nombre de processus à utiliser pour l'extraction d'empreintes (par défaut : 2) \\
+--num-processes, -np & entier & Nombre de processus à utiliser pour le prétraitement (par défaut : 2) \\
+--verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{predict}
+\subsubsection{Description}
+Prédit la segmentation pour les patients en utilisant les modèles spécifiés. Télécharge les images des patients et les points de contrôle des modèles, exécute la prédiction pour chaque modèle et téléverse les résultats vers S3.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp predict <patients> [--models <models>] [--jobs <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLL}
+\toprule
+\textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+--models, -m & liste/chaîne & Liste de modèles à utiliser pour la prédiction (ex. anno1\_init112233\_foldall) ou 'all' \\
+--jobs, -j & entier & Nombre de processus à exécuter (par défaut : 10) \\
+--verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{ensemble}
+\subsubsection{Description}
+La commande ensemble fournit des fonctionnalités pour combiner les prédictions de plusieurs modèles. Elle comprend trois sous-commandes :
+
+\paragraph{dl-ensemble}
+Télécharge les prédictions de plusieurs modèles.
+
+\paragraph{run-ensemble}
+Exécute ensemble\_folders de nnUNet sur les prédictions de modèles téléchargées.
+
+\paragraph{ensemble}
+Combine les fonctionnalités des commandes dl-ensemble et run-ensemble.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp ensemble dl-ensemble <patients> [--models <models>] [--jobs <num>] [--verbose]
+statapp ensemble run-ensemble <patients> [--verbose] [--jobs <num>]
+statapp ensemble ensemble <patients> [--models <models>] [--jobs <num>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Sous-commande} & \textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+dl-ensemble & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+dl-ensemble & --models, -m & liste/chaîne & Liste de modèles à utiliser pour l'ensemble (ex. anno1\_init112233\_foldall) ou 'all' \\
+dl-ensemble & --jobs, -j & entier & Nombre de processus à exécuter (par défaut : 10) \\
+dl-ensemble & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\midrule
+run-ensemble & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) \\
+run-ensemble & --jobs, -j & entier & Nombre de processus à exécuter (par défaut : 10) \\
+run-ensemble & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\midrule
+ensemble & patients & liste/chaîne & Liste de numéros de patients (ex. 001 034) ou 'all', 'train', 'validation', 'test' \\
+ensemble & --models, -m & liste/chaîne & Liste de modèles à utiliser pour l'ensemble (ex. anno1\_init112233\_foldall) ou 'all' \\
+ensemble & --jobs, -j & entier & Nombre de processus à exécuter (par défaut : 10) \\
+ensemble & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\subsection{metrics}
+\subsubsection{Description}
+La commande metrics fournit des fonctionnalités pour calculer et télécharger des métriques pour les prédictions de modèles. Elle comprend deux sous-commandes :
+
+\paragraph{compute-metrics}
+Calcule des métriques pour les prédictions de modèles sur les données des patients.
+
+\paragraph{dl-metrics}
+Télécharge tous les fichiers de métriques de S3, les fusionne et les enregistre dans le répertoire de travail.
+
+\subsubsection{Utilisation}
+\begin{lstlisting}
+statapp metrics compute-metrics <patients> [--models <models>] [--verbose]
+statapp metrics dl-metrics [--output <output_name>] [--verbose]
+\end{lstlisting}
+
+\subsubsection{Paramètres}
+\begin{tabulary}{\linewidth}{LLLL}
+\toprule
+\textbf{Sous-commande} & \textbf{Paramètre} & \textbf{Type} & \textbf{Description} \\
+\midrule
+compute-metrics & patients & liste/chaîne & Liste de numéros de patients (ex. 075 034) ou 'all', 'train', 'validation', 'test' \\
+compute-metrics & --models, -m & liste/chaîne & Liste de modèles à utiliser pour le calcul des métriques (ex. anno1\_init112233\_foldall) ou 'all' \\
+compute-metrics & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\midrule
+dl-metrics & --output, -o & chaîne & Nom du fichier CSV de sortie (par défaut : metrics.csv) \\
+dl-metrics & --verbose, -v & drapeau & Activer la journalisation détaillée \\
+\bottomrule
+\end{tabulary}
+
+\section{Exemples}
+
+\subsection{Préparation d'un Ensemble de Données}
+\begin{lstlisting}
+# Télécharger un ensemble de données pour l'annotateur 1 avec tous les patients
+statapp prepare download-dataset 1 all --verbose
+
+# Télécharger des artefacts de prétraitement pour l'annotateur 1 avec les patients d'entraînement
+statapp prepare download-preprocessing 1 train --verbose
+
+# Préparer un ensemble de données pour l'annotateur 1 avec les patients de validation
+statapp prepare prepare 1 validation --num-processes 4 --verbose
+\end{lstlisting}
+
+\subsection{Entraînement d'un Modèle}
+\begin{lstlisting}
+# Entraîner un modèle avec l'annotateur 1, la graine 42 et tous les plis
+statapp train 42 --annotator 1 --fold all --patients train --verbose
+
+# Exécuter le pipeline complet pour l'annotateur 1, la graine 42 et les patients de validation
+statapp run 1 42 validation --fold all --num-processes 4 --verbose
+\end{lstlisting}
+
+\subsection{Exécution de Prédictions}
+\begin{lstlisting}
+# Prédire la segmentation pour les patients de test en utilisant tous les modèles
+statapp predict test --models all --jobs 8 --verbose
+
+# Prédire la segmentation pour des patients spécifiques en utilisant un modèle spécifique
+statapp predict 001 034 --models anno1_init42_foldall --jobs 4 --verbose
+\end{lstlisting}
+
+\subsection{Combinaison de Modèles}
+\begin{lstlisting}
+# Télécharger les prédictions pour les patients de test à partir de tous les modèles
+statapp ensemble dl-ensemble test --models all --jobs 8 --verbose
+
+# Exécuter l'ensemble pour des patients spécifiques
+statapp ensemble run-ensemble 001 034 --jobs 4 --verbose
+
+# Exécuter le pipeline d'ensemble complet pour les patients de test
+statapp ensemble ensemble test --models all --jobs 8 --verbose
+\end{lstlisting}
+
+\subsection{Calcul de Métriques}
+\begin{lstlisting}
+# Calculer des métriques pour les patients de test en utilisant tous les modèles
+statapp metrics compute-metrics test --models all --verbose
+
+# Télécharger et fusionner tous les fichiers de métriques
+statapp metrics dl-metrics --output metriques_combinees.csv --verbose
+\end{lstlisting}
+
+\subsection{Gestion du Stockage S3}
+\begin{lstlisting}
+# Téléverser des données vers S3
+statapp upload upload-data ./mes_donnees --verbose
+
+# Téléverser des artefacts de modèle vers S3
+statapp upload upload-model-artifacts ./mon_modele anno1_init42_foldall --verbose
+
+# Vider le répertoire d'artefacts (avec confirmation)
+statapp empty-artifacts --verbose
+
+# Vider le répertoire de données (sans confirmation)
+statapp empty-data --confirm --verbose
+\end{lstlisting}
+
+\section{Variables d'Environnement}
+La CLI StatApp utilise plusieurs variables d'environnement pour la configuration. Celles-ci doivent être définies dans un fichier .env dans le répertoire racine du projet.
+
+\begin{tabulary}{\linewidth}{LL}
+\toprule
+\textbf{Variable} & \textbf{Description} \\
+\midrule
+S3\_BUCKET & Le nom du bucket S3 \\
+S3\_DATA\_DIR & Le répertoire dans S3 pour stocker les données \\
+S3\_ARTIFACTS\_DIR & Le répertoire dans S3 pour stocker les artefacts \\
+S3\_OUTPUT\_DIR & Le répertoire dans S3 pour stocker la sortie \\
+S3\_METRICS\_DIR & Le répertoire dans S3 pour stocker les métriques \\
+S3\_MODEL\_ARTIFACTS\_SUBDIR & Le sous-répertoire pour les artefacts de modèle (par défaut : models) \\
+S3\_PROPROCESSING\_ARTIFACTS\_SUBDIR & Le sous-répertoire pour les artefacts de prétraitement (par défaut : preprocessing) \\
+SEED & Graine aléatoire pour la reproductibilité \\
+\bottomrule
+\end{tabulary}
+
+\end{document}
