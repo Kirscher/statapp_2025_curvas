@@ -15,6 +15,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Tuple, Union, List
+
 import numpy as np
 
 

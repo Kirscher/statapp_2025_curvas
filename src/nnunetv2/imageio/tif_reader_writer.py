@@ -14,10 +14,12 @@
 #    limitations under the License.
 import os.path
 from typing import Tuple, Union, List
+
 import numpy as np
-from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
 import tifffile
-from batchgenerators.utilities.file_and_folder_operations import isfile, load_json, save_json, split_path, join
+from batchgenerators.utilities.file_and_folder_operations import isfile, load_json, save_json, join
+
+from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
 
 
 class Tiff3DIO(BaseReaderWriter):

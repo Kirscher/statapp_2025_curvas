@@ -12,7 +12,6 @@ from nnunetv2.postprocessing.remove_connected_components import apply_postproces
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.file_path_utilities import get_output_folder
 
-
 if __name__ == '__main__':
     """
     Predicts the imagesTs folder with the best configuration and applies postprocessing

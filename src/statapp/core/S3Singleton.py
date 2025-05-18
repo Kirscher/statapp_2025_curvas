@@ -6,12 +6,11 @@ ensuring only one connection is created throughout the application.
 """
 
 import os
+from typing import Optional, List, Callable, Any, Dict
+
 import boto3
-import hashlib
-from botocore.client import Config
 from boto3.s3.transfer import TransferConfig
-from typing import Optional, List, Callable, Any, Dict, Union, Tuple
-from pathlib import Path
+from botocore.client import Config
 
 
 class S3Singleton:

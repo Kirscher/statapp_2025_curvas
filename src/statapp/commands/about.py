@@ -4,9 +4,8 @@ About module for the statapp application.
 This module provides information about the project.
 """
 
-from rich.text import Text
 import typer
-from typing import Optional
+from rich.text import Text
 
 from statapp.utils import utils
 

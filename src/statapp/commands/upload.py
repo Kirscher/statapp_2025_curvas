@@ -5,7 +5,9 @@ This module provides a command to upload local directories to S3 artifacts stora
 """
 
 import os
+
 import typer
+
 from statapp.utils.upload_utils import upload_directory_to_s3
 
 app = typer.Typer()

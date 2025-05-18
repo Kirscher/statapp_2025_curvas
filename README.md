@@ -165,8 +165,9 @@ The project is organized as follows:
 - `src/nnunetv2/`: Contains the modified nnU-Net v2 code
   - `training/nnUNetTrainer/variants/nnUNetTrainer_Statapp.py`: Custom trainer with early stopping and seed initialization
 - `src/accesskey/`: Contains access keys information for S3 integration
-- `documentation.md`: Translated documentation of the CLI
-- `rapport-statapp.tex`: Detailed project report (in French)
+- `documentation.md`: Documentation of the CLI
+- `rapport.pdf`: Detailed project report (in French)
+- `note-de-synthese.pdf`: Summary note (in French)
 
 ## Data Organization
 
@@ -179,7 +180,7 @@ The project follows the nnU-Net data organization:
 
 Our results indicate that ensemble methods significantly reduce uncertainty in medical segmentation without degrading prediction accuracy. The global ensemble model (combining all 9 individual models) showed the best performance in terms of uncertainty reduction, with statistically significant improvements in Expected Calibration Error (ECE).
 
-For detailed results and analysis, please refer to the project report (`rapport-statapp.tex`).
+For detailed results and analysis, please refer to the project report (`rapport.pdf`) and summary note (`note-de-synthese.pdf`), both in French.
 
 ## License
 

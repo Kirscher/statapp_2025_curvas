@@ -1,6 +1,6 @@
+import numpy as np
 import torch
 from torch import nn, Tensor
-import numpy as np
 
 
 class RobustCrossEntropyLoss(nn.CrossEntropyLoss):

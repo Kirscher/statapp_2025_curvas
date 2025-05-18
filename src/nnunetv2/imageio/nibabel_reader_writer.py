@@ -12,14 +12,13 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-import warnings
 from typing import Tuple, Union, List
+
+import nibabel
 import numpy as np
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform
 
 from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
-import nibabel
-
 from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
 
 

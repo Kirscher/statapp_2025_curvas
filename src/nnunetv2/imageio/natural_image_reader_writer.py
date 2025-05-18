@@ -14,9 +14,11 @@
 #    limitations under the License.
 
 from typing import Tuple, Union, List
+
 import numpy as np
-from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
 from skimage import io
+
+from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
 
 
 class NaturalImage2DIO(BaseReaderWriter):

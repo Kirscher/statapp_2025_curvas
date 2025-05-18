@@ -7,20 +7,19 @@ This module provides a command to ensemble predictions from multiple models.
 import os
 import re
 import tempfile
-import threading
 import time
 from pathlib import Path
-from typing import List, Union, Literal, Optional
+from typing import List, Union, Literal
 
 import typer
 from rich.text import Text
 
+from nnunetv2.ensembling.ensemble import ensemble_folders
+from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 from statapp.utils import s3_utils
 from statapp.utils.progress_tracker import track_progress
-from statapp.utils.utils import info, setup_logging
 from statapp.utils.upload_utils import upload_directory_to_s3
-from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
-from nnunetv2.ensembling.ensemble import ensemble_folders
+from statapp.utils.utils import info, setup_logging
 
 app = typer.Typer()
 

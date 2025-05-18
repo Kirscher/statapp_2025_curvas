@@ -6,25 +6,21 @@ This module provides a command to predict, for every given model, classes and so
 
 import os
 import re
-import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
-from typing import List, Union, Literal, Optional
-import threading
+from typing import List, Union, Literal
 
 import typer
 from rich.text import Text
 
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 from statapp.utils import s3_utils
-from statapp.utils.empty_utils import empty_directory
 from statapp.utils.progress_tracker import track_progress
 from statapp.utils.upload_utils import upload_directory_to_s3
 from statapp.utils.utils import info, setup_logging
-from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
-
-from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-import torch
 
 app = typer.Typer()
 

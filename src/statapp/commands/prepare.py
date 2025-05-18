@@ -16,13 +16,13 @@ from rich.text import Text
 from nnunetv2.dataset_conversion.generate_dataset_json import generate_dataset_json
 from nnunetv2.experiment_planning.plan_and_preprocess_entrypoints import plan_and_preprocess
 from statapp.commands.upload import upload_preprocessing_artifacts
-from statapp.utils import s3_utils
-from statapp.utils.progress_tracker import track_progress
-from statapp.utils.utils import info, setup_logging
 from statapp.core.constants import (
     DATASET_PREFIX, PATIENT_PREFIX, FILE_ENDING, CHANNEL_NAMES, LABELS,
     TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 )
+from statapp.utils import s3_utils
+from statapp.utils.progress_tracker import track_progress
+from statapp.utils.utils import info, setup_logging
 
 app = typer.Typer()
 

@@ -5,14 +5,15 @@ This module provides commands for preparing datasets for analysis.
 """
 
 import os
-import typer
-from typing import Optional, List
 from pathlib import Path
+from typing import Optional, List
+
+import typer
+from rich.text import Text
 
 from nnunetv2.run.run_training import run_training_with_args
-from statapp.utils.utils import setup_logging, info
-from rich.text import Text
 from statapp.commands.prepare import get_dataset_code, DATASET_PREFIX, download_preprocessing
+from statapp.utils.utils import setup_logging, info
 
 app = typer.Typer()
 

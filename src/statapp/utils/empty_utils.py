@@ -7,8 +7,8 @@ This module provides shared functionality for emptying directories in S3 storage
 import os
 from typing import Callable, List, Dict, Any
 
-from rich.text import Text
 import typer
+from rich.text import Text
 
 from statapp.utils import utils
 

@@ -11,17 +11,17 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import List, Union, Literal, Dict, Any, Optional, Tuple
+from typing import List, Union, Literal, Dict, Any, Tuple
 
 import pandas as pd
 import typer
 from rich.text import Text
 
+from statapp.core.S3Singleton import S3Singleton
 from statapp.core.constants import TRAIN_PATIENTS, VALIDATION_PATIENTS, TEST_PATIENTS
 from statapp.core.metrics import apply_metrics, getting_gt
-from statapp.core.S3Singleton import S3Singleton
 from statapp.utils import s3_utils
-from statapp.utils.progress_tracker import ProgressTracker, track_progress
+from statapp.utils.progress_tracker import track_progress
 from statapp.utils.upload_utils import upload_directory_to_s3
 from statapp.utils.utils import info, setup_logging
 

@@ -8,15 +8,15 @@ from dotenv import load_dotenv
 from typer import Typer
 
 from statapp.commands.about import app as about
-from statapp.commands.upload import app as upload_artifacts
 from statapp.commands.empty_artifacts import app as empty_artifacts
 from statapp.commands.empty_data import app as empty_data
-from statapp.commands.prepare import app as prepare
-from statapp.commands.train import app as train
-from statapp.commands.run import app as run
-from statapp.commands.predict import app as predict
 from statapp.commands.ensemble import app as ensemble
 from statapp.commands.metrics import app as metrics
+from statapp.commands.predict import app as predict
+from statapp.commands.prepare import app as prepare
+from statapp.commands.run import app as run
+from statapp.commands.train import app as train
+from statapp.commands.upload import app as upload_artifacts
 
 app = Typer(
     context_settings={"help_option_names": ["--help", "-h"]},

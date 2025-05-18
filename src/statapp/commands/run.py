@@ -5,14 +5,15 @@ This module provides a command that combines prepare, train, and upload_artifact
 """
 
 import os
+from typing import List
+
 import typer
-from typing import Optional, List
+from rich.text import Text
 
 from statapp.commands.prepare import prepare, get_dataset_code
 from statapp.commands.train import train
 from statapp.commands.upload import upload_model_artifacts
 from statapp.utils.utils import setup_logging, info
-from rich.text import Text
 
 app = typer.Typer()
 
