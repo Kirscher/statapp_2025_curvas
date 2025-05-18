@@ -11,5 +11,4 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.utils import column_or_1d
 from sklearn.preprocessing import label_binarize
 
-
 #faire un coup de subprocess pour ne pas avoir à pip install chacune des fonctions
