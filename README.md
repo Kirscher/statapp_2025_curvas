@@ -166,8 +166,11 @@ The project is organized as follows:
   - `training/nnUNetTrainer/variants/nnUNetTrainer_Statapp.py`: Custom trainer with early stopping and seed initialization
 - `src/accesskey/`: Contains access keys information for S3 integration
 - `documentation.md`: Documentation of the CLI
-- `rapport.pdf`: Detailed project report (in French)
-- `note-de-synthese.pdf`: Summary note (in French)
+
+In French : 
+- `documentation-md.md`: Documentation de la CLI
+- `rapport.pdf`: Rapport du projet détaillé
+- `note-de-synthese.pdf`: Note de synthèse
 
 ## Data Organization
 
