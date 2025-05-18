@@ -1,18 +1,74 @@
-# Medical Segmentation: Handling Inter-Rater Uncertainty and Variability
+# Reducing Uncertainty in Medical Segmentation with Ensemble Methods
 
-#### ENSAE 2025 Applied Statistics Project
+## ENSAE 2025 Applied Statistics Project
 
-Welcome to the repository for the ENSAE StatApp project! This project focuses on medical image segmentation with a special emphasis on handling inter-rater uncertainty and variability.
+This repository contains the implementation of the ENSAE StatApp project focused on reducing uncertainty in medical image segmentation through ensemble methods. The project builds upon the [nnU-Net v2](https://github.com/MIC-DKFZ/nnUNet) framework with custom modifications to handle inter-rater variability and uncertainty quantification.
 
 ## Project Overview
 
-This project is a fork of [nnU-Net v2](https://github.com/MIC-DKFZ/nnUNet), a powerful framework for medical image segmentation, with a custom command-line interface (CLI) built on top of it. The CLI provides easy access to various functionalities including dataset preparation, model training, and data management.
+Medical image segmentation, particularly the automatic delineation of organs and structures, is crucial for diagnosis, treatment planning, and clinical monitoring. However, segmentation tasks often face uncertainty due to:
 
-**Team Members:**
+1. **Aleatoric uncertainty**: Inherent ambiguities in the data, including inter-rater variability (different experts annotating the same image differently)
+2. **Epistemic uncertainty**: Model-related uncertainty due to limited knowledge or training data
+
+This project systematically evaluates ensemble methods for U-Net models to reduce these uncertainties in medical segmentation tasks. We train and infer multiple models on CT scans annotated by different experts, combine them using ensemble methods, and evaluate their accuracy, aleatoric uncertainty, and epistemic uncertainty.
+
+### Team Members
 - Lucas CUMUNEL
 - Tara LEROUX
 - Léo LEROY
 - Rémy SIAHAAN-GENSOLLEN
+
+## Features
+
+### Key Modifications to nnU-Net
+
+1. **Early Stopping**
+   - Added patience-based early stopping (default: 20 epochs)
+   - Limited maximum training to 300 epochs
+   - Prevents overfitting and reduces training time
+
+2. **Seed Initialization**
+   - Added reproducible weight initialization with fixed random seeds
+   - Allows exploring different points in the loss landscape
+   - Implemented through the `SeededInitWeights_He` class
+
+3. **Enhanced Logging**
+   - Improved console output with rich formatting and emojis
+   - Better visualization of training metrics
+   - Detailed progress tracking
+
+4. **S3 Integration**
+   - Added support for storing and retrieving data from S3-compatible storage
+   - Facilitates distributed training and large dataset handling
+
+5. **Ensemble Methods**
+   - Implemented model ensembling to reduce uncertainty
+   - Support for different ensemble strategies (per-annotator and global)
+
+6. **Uncertainty Quantification**
+   - Comprehensive evaluation framework for uncertainty metrics
+   - Integration with CURVAS and ValUES frameworks for uncertainty assessment
+
+### Evaluation Metrics
+
+The project implements various metrics to evaluate model performance and uncertainty:
+
+1. **Performance Metrics**
+   - Consensus-based DICE
+   - Continuous Ranked Probability Score (CRPS)
+   - Hausdorff Distance
+
+2. **Aleatoric Uncertainty Metrics**
+   - Confidence (Uncertainty Assessment)
+   - Normalized Cross Correlation (NCC)
+
+3. **Epistemic Uncertainty Metrics**
+   - Expected Calibration Error (ECE)
+   - Average Calibration Error (ACE)
+   - Area Under the Receiver Operating Characteristic curve (AUROC)
+   - Area Under the Risk Curve (AURC)
+   - Expected Area Under the Risk Curve (EAURC)
 
 ## Installation
 
@@ -29,7 +85,7 @@ To install and use the project:
    pip install -e .
    ```
 
-3. Set up environment variables. One way is to create a `.env` file in the project root with the following variables:
+3. Set up environment variables by creating a `.env` file in the project root:
    ```dotenv
    #S3 Endpoint
    S3_ENDPOINT="https://..."
@@ -48,110 +104,69 @@ To install and use the project:
    #Name of the artifacts directory (in the S3 bucket)
    #where the training outputs will be stored.
    S3_ARTIFACTS_DIR="artifacts"
+
+   #Name of the output directory (in the S3 bucket)
+   S3_OUTPUT_DIR="output"
+
+   #Name of the metrics directory (in the S3 bucket)
+   S3_METRICS_DIR="metrics"
+
+   #Subdirectories for artifacts
+   S3_MODEL_ARTIFACTS_SUBDIR="models"
+   S3_PROPROCESSING_ARTIFACTS_SUBDIR="preprocessing"
    ```
-## Command Line Interface
+## Usage
 
-The installation makes available a command line interface with `statapp2025curvas`. To see the help and available commands, run:
+The installation makes available a command-line interface with `statapp`. To see the help and available commands, run:
 
 ```shell
-statapp2025curvas --help
+statapp --help
 ```
 
-### Available Commands
+For detailed documentation of all commands and their parameters, see the [CLI Documentation](documentation.md).
 
-#### About
-Display information about the project:
-```shell
-statapp2025curvas about
-```
+### Basic Workflow
 
-#### Prepare Dataset
-Download and prepare a dataset for analysis:
-```shell
-statapp2025curvas prepare <annotator> <patients>
-```
-Arguments:
-- `annotator`: Annotator number (1/2/3)
-- `patients`: List of patient numbers or "all" for all patients
+1. **Prepare Data**
+   ```shell
+   statapp prepare prepare 1 train --num-processes 4 --verbose
+   ```
 
-Options:
-- `--skip`: Skip download and only run preprocessing
-- `--num-processes-fingerprint`: Number of processes for fingerprint extraction
-- `--num-processes`: Number of processes for preprocessing
-- `--verbose`: Enable verbose logging
+2. **Train Model**
+   ```shell
+   statapp train 112233 --annotator 1 --fold all --patients train --verbose
+   ```
 
-#### Prepare Dataset (nnUNet)
-Prepare a dataset using nnUNet directly:
-```shell
-statapp2025curvas prepare-nnunet <base_directory> <dataset>
-```
-Arguments:
-- `base_directory`: Local directory path to the dataset
-- `dataset`: ID of the dataset to preprocess
+3. **Run Predictions**
+   ```shell
+   statapp predict test --models all --jobs 8 --verbose
+   ```
 
-Options:
-- `--raw`: Local path of raw data relative to base
-- `--preprocessed`: Local path of preprocessed data relative to base
+4. **Create Ensemble**
+   ```shell
+   statapp ensemble ensemble test --models all --jobs 8 --verbose
+   ```
 
-#### Train
-Train a model on a given dataset:
-```shell
-statapp2025curvas train <base_directory>
-```
-Arguments:
-- `base_directory`: Local directory path to the dataset
+5. **Calculate Metrics**
+   ```shell
+   statapp metrics compute-metrics test --models all --verbose
+   ```
 
-Options:
-- `--preprocessed`: Local path of preprocessed data relative to base
-- `--results`: Local path of results relative to base
-- `--dataset`: Specific dataset to train on (optional)
-
-#### Upload Data
-Upload a local directory to the S3 data folder:
-```shell
-statapp2025curvas upload-data <directory>
-```
-Arguments:
-- `directory`: Local directory path to upload
-
-Options:
-- `--verbose`: Enable verbose output
-
-#### Upload Artifacts
-Upload a local directory to the S3 artifacts folder:
-```shell
-statapp2025curvas upload-artifacts <directory>
-```
-Arguments:
-- `directory`: Local directory path to upload
-
-Options:
-- `--verbose`: Enable verbose output
-
-#### Empty Data
-Remove all files and folders from the S3 data folder:
-```shell
-statapp2025curvas empty-data
-```
-Options:
-- `--confirm`: Confirm deletion without prompting
-- `--verbose`: Enable verbose output
-
-#### Empty Artifacts
-Remove all files and folders from the S3 artifacts folder:
-```shell
-statapp2025curvas empty-artifacts
-```
-Options:
-- `--confirm`: Confirm deletion without prompting
-- `--verbose`: Enable verbose output
+6. **Download and Combine Metrics**
+   ```shell
+   statapp metrics dl-metrics --output combined_metrics.csv --verbose
+   ```
 
 ## Project Structure
 
 The project is organized as follows:
+
 - `src/statapp/`: Contains the CLI implementation and utility functions
-- `src/nnunetv2/`: Contains the fork of nnU-Net v2
+- `src/nnunetv2/`: Contains the modified nnU-Net v2 code
+  - `training/nnUNetTrainer/variants/nnUNetTrainer_Statapp.py`: Custom trainer with early stopping and seed initialization
 - `src/accesskey/`: Contains access keys information for S3 integration
+- `documentation.md`: Translated documentation of the CLI
+- `rapport-statapp.tex`: Detailed project report (in French)
 
 ## Data Organization
 
@@ -159,6 +174,12 @@ The project follows the nnU-Net data organization:
 - `nnUNet_raw/`: Contains raw datasets
 - `nnUNet_preprocessed/`: Contains preprocessed data
 - `nnUNet_results/`: Contains training results
+
+## Results
+
+Our results indicate that ensemble methods significantly reduce uncertainty in medical segmentation without degrading prediction accuracy. The global ensemble model (combining all 9 individual models) showed the best performance in terms of uncertainty reduction, with statistically significant improvements in Expected Calibration Error (ECE).
+
+For detailed results and analysis, please refer to the project report (`rapport-statapp.tex`).
 
 ## License
 
